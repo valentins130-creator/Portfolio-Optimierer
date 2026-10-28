@@ -1,0 +1,9 @@
+[project]
+name = "portfolio-optimierer"
+version = "0.1.0"
+description = "Markowitz-Optimierung, Monte-Carlo-Simulation und Schätzfehler-Analyse für Aktien und ETFs"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
