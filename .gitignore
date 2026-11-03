@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 venv/
 .streamlit/secrets.toml
+
+# Eigene Portfolios (private Daten)
+portfolios/

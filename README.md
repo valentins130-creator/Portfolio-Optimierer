@@ -1,6 +1,6 @@
 # Portfolio-Optimierer
 
-Eine Streamlit-App für die Portfolio-Optimierung nach Markowitz: Aktien oder ETFs auswählen, historische Kurse laden, die **Efficient Frontier** berechnen und die Vermögensentwicklung per **Monte-Carlo-Simulation** durchspielen. Ein eigener Bereich zeigt, **warum die Optimierung mit geschätzten Parametern oft enttäuscht** und was dagegen hilft.
+Eine Streamlit-App für die Portfolio-Optimierung nach Markowitz: Aktien oder ETFs auswählen, historische Kurse laden, die **Efficient Frontier** berechnen und die Vermögensentwicklung per **Monte-Carlo-Simulation** durchspielen. Ein eigener Bereich zeigt, **warum die Optimierung mit geschätzten Parametern oft enttäuscht** und was dagegen hilft. Unter **Mein Portfolio** lässt sich das eigene Depot anlegen und auf Klumpenrisiken, Absicherungen und Umschichtungen untersuchen.
 
 ![Efficient Frontier](docs/frontier.png)
 
@@ -8,6 +8,7 @@ Eine Streamlit-App für die Portfolio-Optimierung nach Markowitz: Aktien oder ET
 
 | Tab | Inhalt |
 |---|---|
+| **Mein Portfolio** | Eigenes Depot per Suche anlegen (Stückzahl, Kaufkurs), Gewinn/Verlust, Aufteilung nach Sektoren, Ländern und Währungen, Klumpenrisiko, Absicherungsvorschläge, Umschichtung (erscheint mit der Datenquelle „Mein Portfolio“) |
 | **Daten** | Wertentwicklung (Start = 100), Rendite, CAGR, Volatilität, Sharpe-Ratio und maximaler Drawdown je Asset, Korrelationsmatrix |
 | **Efficient Frontier** | Effizienter Rand, Kapitalmarktlinie, Minimum-Varianz- und Max-Sharpe-Portfolio, frei wählbares Portfolio per Zielvolatilität, Gewichte entlang der Frontier, Risikobeiträge |
 | **Monte Carlo** | Parametrische Simulation (korrelierte geometrische Brownsche Bewegung) oder historisches Block-Bootstrap, mit Sparrate, Fächerdiagramm, Verteilung des Endvermögens, Verlust- und Zielwahrscheinlichkeit, Drawdowns |
@@ -42,9 +43,32 @@ Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Te
   02.01.2024;101,20;55,10
   03.01.2024;102,05;54,80
   ```
+- **Mein Portfolio:** das eigene Depot, siehe unten. Kurse werden in Euro umgerechnet.
 - **Demo-Daten:** Simulierte Kurse sechs fiktiver Assetklassen. Damit lässt sich die App ohne Internetverbindung ausprobieren.
 
-Assets mit unterschiedlichen Handelskalendern werden über kurze Lücken (bis zu fünf Tage) fortgeschrieben, anschließend wird auf den gemeinsamen Zeitraum zugeschnitten. Kurse bleiben in ihrer Handelswährung; Wechselkurse werden nicht umgerechnet.
+Assets mit unterschiedlichen Handelskalendern werden über kurze Lücken (bis zu fünf Tage) fortgeschrieben, anschließend wird auf den gemeinsamen Zeitraum zugeschnitten. Bei Yahoo Finance, CSV und Demo-Daten bleiben Kurse in ihrer Handelswährung; nur „Mein Portfolio“ rechnet in Euro um.
+
+## Mein Portfolio
+
+Datenquelle „Mein Portfolio“ in der Seitenleiste wählen. Als Marktdaten stehen Yahoo Finance (live) oder eine **Offline-Demo** mit fiktiven Wertpapieren und einem Beispieldepot zur Verfügung (unter **Neu** → „Beispieldepot laden“).
+
+- **Anlegen:** Wertpapiere per Name, Ticker oder ISIN suchen und mit Stückzahl und Kaufkurs je Stück (in Euro, wie im Depotauszug) hinzufügen. Stückzahl und Kaufkurs lassen sich in der Tabelle ändern. Mehrfache Käufe desselben Werts werden zusammengefasst, der Einstandskurs gemittelt.
+- **Speichern:** Jede Änderung wird als JSON im Ordner `portfolios/` gespeichert (Demo-Portfolios in `portfolios/demo/`). Der Ordner ist von Git ausgeschlossen, weil er private Daten enthält. Mit der Umgebungsvariable `PORTFOLIO_DIR` lässt sich ein anderer Ort wählen. Export und Import als JSON oder CSV; eine CSV braucht die Spalten `Symbol` und `Stück`, optional `Kaufkurs`:
+  ```
+  Symbol;Stück;Kaufkurs
+  SAP.DE;10;182,40
+  EUNL.DE;25,5;88,10
+  ```
+- **Aufteilung:** nach Sektoren, Ländern und Handelswährungen. ETFs werden über ihre Sektorgewichte aufgeschlüsselt (Durchschau), soweit Yahoo diese liefert. Für Länder liefert Yahoo bei Fonds keine Aufteilung; sie erscheinen als „Mehrere Länder (Fonds)“.
+- **Klumpenrisiko:** Konzentration nach Einzelaktie, Sektor, Land, Fremdwährung und Gruppen stark korrelierter Einzelwerte (hierarchisches Clustering). Zu jeder Gruppe gehört neben dem Gewicht der **Risikoanteil**, also der Teil der Depotschwankung, den sie verursacht. Die Grenzen (Standard: 10 % je Aktie, 30 % je Sektor, 60 % je Land, 50 % je Fremdwährung, 40 % je Cluster) sind einstellbar.
+- **Absicherung:**
+  - *Markt-Hedge:* Beta des Depots gegenüber mehreren Indizes. Das Instrument mit dem höchsten R² ist der beste Hedge; Short-Betrag = Beta × Depotwert × Absicherungsquote.
+  - *Beimischung:* Wirkung von Anleihen, Geldmarkt, Gold, Nebenwerten usw. auf Volatilität, maximalen Rückgang und Rendite.
+  - *Klumpen:* Für jede Konzentration über der Grenze der Verkaufsbetrag bis zur Grenze oder die Absicherung genau dieses Überhangs über das am besten passende Sektor- oder Index-Instrument bzw. ein Devisentermingeschäft.
+- **Umschichtung:** Käufe und Verkäufe, um die Klumpenrisiko-Grenzen mit möglichst wenig Umschichtung einzuhalten (quadratisches Programm, optional mit einem Welt-ETF als Ausgleich) oder um effizient bei gleichem Risiko, zum Minimum-Varianz- oder zum Max-Sharpe-Portfolio zu kommen. Angezeigt werden Stückzahlen, Beträge, Restliquidität und die durch Verkäufe realisierten Gewinne.
+- **Integration:** Das eigene Depot erscheint im Efficient-Frontier-Diagramm (mit Abstand zum effizienten Rand) und lässt sich im Tab Monte Carlo simulieren.
+
+Alle Risiko- und Hedge-Kennzahlen beruhen auf historischen **Wochenrenditen in Euro**. Wochendaten mildern Verzerrungen durch unterschiedliche Handelszeiten der Börsen.
 
 ## Methodik
 
@@ -79,12 +103,18 @@ Im Szenario mit identischen Assets ist das wahre Optimum 1/N. Trotzdem versprich
 
 ```
 app.py                         Streamlit-Oberfläche
+portfolio_tab.py               Tab „Mein Portfolio“
 portfolio_optimizer/
   data.py                      Yahoo Finance, CSV-Import, Datenbereinigung, Demo-Daten
   estimators.py                Mittelwert- und Kovarianzschätzer (Stichprobe, Bayes-Stein, Ledoit-Wolf)
   optimization.py              Minimum-Varianz, Max-Sharpe, Efficient Frontier, Zielrendite/-volatilität
   monte_carlo.py               GBM-Simulation und Block-Bootstrap
   instability.py               Schätzunsicherheit, Sensitivität, Simulationsexperimente
+  market.py                    Suche, Stammdaten, Kurse, Wechselkurse (Yahoo und Offline-Demo)
+  portfolio.py                 Positionen, Speichern/Laden, Bewertung, Aufteilung
+  concentration.py             Klumpenrisiko: Konzentrationen, Cluster, Risikoanteile
+  hedging.py                   Markt-Hedge, Beimischungen, Absicherung von Klumpen
+  rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme (helles und dunkles Theme)
   formatting.py                Deutsche Zahlenformate
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
@@ -102,7 +132,8 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 ## Grenzen
 
 - Keine Anlageberatung. Die App ist ein Lern- und Analysewerkzeug.
-- Transaktionskosten, Steuern und Wechselkurse werden nicht berücksichtigt.
+- Transaktionskosten und Steuern werden nicht berücksichtigt; Wechselkurse nur unter „Mein Portfolio“.
+- Absicherungen und Umschichtungen beruhen auf historischen Daten. Hedges sichern mit dem Risiko auch die erwartete Rendite ab und verursachen Kosten.
 - Die parametrische Simulation unterstellt normalverteilte Log-Renditen und behandelt die geschätzten Parameter als bekannt. Wie problematisch das ist, zeigt der Tab „Schätzfehler“.
 
 ## Literatur

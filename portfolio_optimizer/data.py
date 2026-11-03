@@ -12,7 +12,7 @@ import pandas as pd
 
 from .estimators import TRADING_DAYS
 
-MAX_ASSETS = 16
+MAX_ASSETS = 24
 MIN_OBSERVATIONS = 60
 
 PRESETS = {

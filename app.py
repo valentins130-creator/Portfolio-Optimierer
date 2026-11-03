@@ -19,6 +19,7 @@ try:
     from portfolio_optimizer import instability as ins
     from portfolio_optimizer.estimators import COV_ESTIMATORS, MEAN_ESTIMATORS, estimate
     from portfolio_optimizer.formatting import num, pct, ratio, styled
+    import portfolio_tab
 except ModuleNotFoundError as exc:
     package = (exc.name or "").split(".")[0]
     if package == "portfolio_optimizer":
@@ -122,14 +123,28 @@ def _mark_custom() -> None:
     st.session_state["preset"] = CUSTOM_PRESET
 
 
-def sidebar_data() -> tuple[pd.DataFrame, str] | None:
+def sidebar_data():
+    """Liest die Datenquelle. Rückgabe: (Kurse oder None, Beschriftung, Portfolio-Kontext oder None)."""
     sb = st.sidebar
     sb.header("1 · Daten")
     source = sb.radio(
         "Datenquelle",
-        ["Yahoo Finance", "CSV-Datei", "Demo-Daten"],
-        help="Demo-Daten sind simulierte Kurse fiktiver Assetklassen – praktisch zum Ausprobieren ohne Internet.",
+        ["Yahoo Finance", "Mein Portfolio", "CSV-Datei", "Demo-Daten"],
+        help="Mein Portfolio: eigenes Depot mit Stückzahlen und Kaufkursen anlegen und analysieren. "
+        "Demo-Daten sind simulierte Kurse fiktiver Assetklassen – praktisch zum Ausprobieren ohne Internet.",
     )
+
+    if source == "Mein Portfolio":
+        provider, start, end = portfolio_tab.sidebar()
+        ctx = portfolio_tab.load_context(provider, start, end)
+        label = f"Mein Portfolio „{ctx.portfolio.name}“ ({portfolio_tab.PROVIDERS[provider]}, Kurse in EUR)"
+        prices = ctx.analysis_prices() if len(ctx.weights) >= 2 else None
+        if prices is not None:
+            try:
+                prices = data.clean_prices(prices)
+            except data.DataError:
+                prices = None
+        return prices, label, ctx
 
     if source == "Yahoo Finance":
         first = next(iter(data.PRESETS))
@@ -213,7 +228,7 @@ def sidebar_data() -> tuple[pd.DataFrame, str] | None:
     except data.DataError as exc:
         st.error(str(exc))
         return None
-    return prices, label
+    return prices, label, None
 
 
 def sidebar_settings(n_assets: int):
@@ -299,8 +314,11 @@ def tab_data(prices, returns, est, rf, source_label, theme) -> None:
         st.dataframe(corr.style.format(lambda v: ratio(v)))
 
 
-def tab_frontier(est, rf, bounds, theme):
-    """Zeigt den effizienten Rand und gibt die Portfolios für die anderen Tabs zurück."""
+def tab_frontier(est, rf, bounds, theme, own: np.ndarray | None = None):
+    """Zeigt den effizienten Rand und gibt die Portfolios für die anderen Tabs zurück.
+
+    ``own``: Gewichte des eigenen Depots in der Reihenfolge von ``est.assets``.
+    """
     n = len(est.assets)
     frontier = opt.efficient_frontier(est.mu, est.cov, bounds, n_points=60)
     w_gmv = opt.min_variance(est.cov, bounds)
@@ -336,7 +354,9 @@ def tab_frontier(est, rf, bounds, theme):
     c2.metric("Volatilität p. a.", pct(vol_sel), border=True)
     c3.metric("Sharpe-Ratio", ratio(sharpe_sel), border=True)
 
-    named = {"Ausgewählt": w_sel, "Max-Sharpe": w_ms, "Minimum-Varianz": w_gmv}
+    if own is not None:
+        own_frontier_note(own, est, bounds)
+    named = {charts.OWN_PORTFOLIO: own, "Ausgewählt": w_sel, "Max-Sharpe": w_ms, "Minimum-Varianz": w_gmv}
     named = {k: v for k, v in named.items() if v is not None}
     points = {k: opt.portfolio_stats(w, est.mu, est.cov)[1::-1] for k, w in named.items()}
     cloud = opt.random_portfolios(est.mu, est.cov, 3000, seed=1, bounds=bounds)
@@ -349,6 +369,7 @@ def tab_frontier(est, rf, bounds, theme):
     st.caption(
         "Grau: zufällig gemischte Portfolios ohne Leerverkäufe. Gestrichelt: Kapitalmarktlinie "
         "vom risikolosen Zins durch das Max-Sharpe-Portfolio (Tangentialportfolio)."
+        + ("" if charts.labels_fit(est.assets) else " Namen der Einzelwerte erscheinen beim Überfahren mit der Maus.")
     )
 
     left, right = st.columns(2)
@@ -389,8 +410,25 @@ def tab_frontier(est, rf, bounds, theme):
     return all_named
 
 
-def tab_monte_carlo(portfolios, est, returns, theme) -> None:
+def own_frontier_note(own: np.ndarray, est, bounds) -> None:
+    """Vergleicht das eigene Depot mit dem effizienten Rand."""
+    ret, vol, _ = opt.portfolio_stats(own, est.mu, est.cov)
+    eff_ret = opt.portfolio_stats(opt.efficient_risk(est.mu, est.cov, vol, bounds), est.mu, est.cov)[0]
+    text = (f"**Mein Portfolio:** erwartete Rendite {pct(ret)}, Volatilität {pct(vol)}. Ein effizientes Portfolio "
+            f"mit gleicher Volatilität erwartet {pct(eff_ret)}")
+    frontier_min = opt.portfolio_stats(opt.min_variance(est.cov, bounds), est.mu, est.cov)[0]
+    if ret >= frontier_min:
+        try:
+            eff_vol = opt.portfolio_stats(opt.efficient_return(est.mu, est.cov, ret, bounds), est.mu, est.cov)[1]
+            text += f"; dieselbe Rendite wäre schon mit {pct(eff_vol)} Volatilität erreichbar"
+        except opt.OptimizationError:
+            pass
+    st.markdown(text + ". Das beruht auf geschätzten Renditen – siehe Tab **Schätzfehler**.")
+
+
+def tab_monte_carlo(portfolios, est, returns, theme, initial_default: float = 10_000) -> None:
     labels = {
+        charts.OWN_PORTFOLIO: "Mein Portfolio (aktuelle Gewichte)",
         "Ausgewählt": "Ausgewähltes Frontier-Portfolio",
         "Max-Sharpe": "Max-Sharpe-Portfolio",
         "Minimum-Varianz": "Minimum-Varianz-Portfolio",
@@ -407,7 +445,7 @@ def tab_monte_carlo(portfolios, est, returns, theme) -> None:
         "Bootstrap: zieht zufällige Monatsblöcke aus den tatsächlichen Tagesrenditen (erhält Fat Tails).",
     )
     c3, c4, c5, c6 = st.columns(4)
-    initial = c3.number_input("Anfangskapital", 0, 100_000_000, 10_000, 1_000)
+    initial = c3.number_input("Anfangskapital", 0, 100_000_000, int(round(initial_default)), 1_000)
     contribution = c4.number_input("Sparrate pro Monat", 0, 1_000_000, 0, 50)
     years = c5.slider("Anlagehorizont (Jahre)", 1, 40, 10)
     n_paths = c6.select_slider("Anzahl Pfade", [500, 1_000, 2_000, 5_000, 10_000], value=2_000)
@@ -746,19 +784,35 @@ def main() -> None:
     loaded = sidebar_data()
     if loaded is None:
         st.stop()
-    prices, source_label = loaded
+    prices, source_label, pctx = loaded
+    theme = current_theme()
+
+    if prices is None:  # eigenes Portfolio mit weniger als zwei auswertbaren Positionen
+        _, _, rf, bounds = sidebar_settings(max(len(pctx.weights), 2))
+        portfolio_tab.render(pctx, None, rf, bounds, theme)
+        if pctx.portfolio.positions:
+            st.info("Efficient Frontier, Monte Carlo und Schätzfehler brauchen mindestens zwei Positionen mit "
+                    "gemeinsamer Kurshistorie.")
+        return
+
     returns = data.simple_returns(prices)
     mean_method, cov_method, rf, bounds = sidebar_settings(prices.shape[1])
     est = estimate(returns, mean_method, cov_method)
-    theme = current_theme()
 
-    t_data, t_frontier, t_mc, t_err = st.tabs(["Daten", "Efficient Frontier", "Monte Carlo", "Schätzfehler"])
+    names = ["Daten", "Efficient Frontier", "Monte Carlo", "Schätzfehler"]
+    tabs = st.tabs(["Mein Portfolio", *names] if pctx is not None else names)
+    if pctx is not None:
+        with tabs[0]:
+            portfolio_tab.render(pctx, est, rf, bounds, theme)
+        tabs = tabs[1:]
+    t_data, t_frontier, t_mc, t_err = tabs
     with t_data:
         tab_data(prices, returns, est, rf, source_label, theme)
     with t_frontier:
-        portfolios = tab_frontier(est, rf, bounds, theme)
+        own = pctx.own_weights(est.assets) if pctx is not None else None
+        portfolios = tab_frontier(est, rf, bounds, theme, own)
     with t_mc:
-        tab_monte_carlo(portfolios, est, returns, theme)
+        tab_monte_carlo(portfolios, est, returns, theme, pctx.value if pctx is not None else 10_000)
     with t_err:
         tab_estimation_error(returns, est, rf, bounds, theme)
 
