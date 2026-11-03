@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from .formatting import pct
 from .instability import STRATEGIES, FrontierExperiment, StrategyExperiment
 from .monte_carlo import SimulationResult
 from .optimization import Frontier
@@ -64,8 +65,10 @@ DARK = Theme(
 
 FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
-# Feste Rollen der Portfolios über alle Diagramme hinweg
+# Feste Rollen der Portfolios über alle Diagramme hinweg. Das eigene Depot ist der
+# Ausgangspunkt und erscheint deshalb zurückhaltend in dunklem Grau.
 PORTFOLIO_SLOTS = {"Ausgewählt": 0, "Max-Sharpe": 1, "Minimum-Varianz": 2}
+OWN_PORTFOLIO = "Mein Portfolio"
 
 
 def get_theme(dark: bool) -> Theme:
@@ -83,11 +86,11 @@ def asset_color(theme: Theme, i: int) -> str:
 
 
 def asset_dash(i: int) -> str:
-    return "solid" if i < 8 else "dot"
+    return ("solid", "dot", "dash")[min(i // 8, 2)]
 
 
 def portfolio_color(theme: Theme, name: str) -> str:
-    return theme.series[PORTFOLIO_SLOTS[name]]
+    return theme.ink2 if name == OWN_PORTFOLIO else theme.series[PORTFOLIO_SLOTS[name]]
 
 
 def style(
@@ -267,20 +270,24 @@ def frontier_chart(
             line=dict(color=theme.ink, width=2.5), hovertemplate=hover + "<extra>Efficient Frontier</extra>",
         )
     )
+    labelled = labels_fit(asset_names)
     fig.add_trace(
         go.Scatter(
-            x=asset_vols, y=asset_rets, mode="markers+text", name="Einzelwerte", text=asset_names,
-            textposition=_label_positions(asset_vols), textfont=dict(color=theme.ink2, size=12),
+            x=asset_vols, y=asset_rets, mode="markers+text" if labelled else "markers", name="Einzelwerte",
+            text=asset_names, textposition=_label_positions(asset_vols), textfont=dict(color=theme.ink2, size=12),
             marker=dict(color=theme.muted, size=9, line=dict(color=theme.surface, width=2)),
             hovertemplate="<b>%{text}</b><br>" + hover + "<extra></extra>",
         )
     )
-    symbols = {"Ausgewählt": "diamond", "Max-Sharpe": "star", "Minimum-Varianz": "circle"}
+    symbols = {"Ausgewählt": "diamond", "Max-Sharpe": "star", "Minimum-Varianz": "circle", OWN_PORTFOLIO: "square"}
     # Das ausgewählte Portfolio zuletzt zeichnen: Es liegt oft genau auf dem Max-Sharpe-Stern.
     for name, (vol, ret) in sorted(portfolios.items(), key=lambda item: item[0] == "Ausgewählt"):
+        own = name == OWN_PORTFOLIO
         fig.add_trace(
             go.Scatter(
-                x=[vol], y=[ret], mode="markers", name=name,
+                x=[vol], y=[ret], mode="markers+text" if own else "markers", name=name,
+                text=[name] if own else None, textposition="bottom center",
+                textfont=dict(color=theme.ink2, size=12),
                 marker=dict(
                     color=portfolio_color(theme, name), size=16 if name == "Max-Sharpe" else 13,
                     symbol=symbols[name], line=dict(color=theme.surface, width=2),
@@ -291,6 +298,11 @@ def frontier_chart(
     fig.update_xaxes(rangemode="tozero")
     return style(fig, theme, height=520, x_title="Volatilität p. a.", y_title="Erwartete Rendite p. a.",
                  x_format=".0%", y_format=".0%")
+
+
+def labels_fit(names: list[str]) -> bool:
+    """Direkte Beschriftung nur bei wenigen oder kurzen Namen, sonst überlagern sich die Texte."""
+    return len(names) <= 6 or max(len(n) for n in names) <= 8
 
 
 def _label_positions(vols: np.ndarray) -> list[str]:
@@ -336,7 +348,9 @@ def transition_chart(frontier: Frontier, asset_names: list[str], theme: Theme) -
                 go.Scatter(
                     **common, mode="lines", stackgroup="w", line=dict(color=theme.surface, width=1.5),
                     fillcolor=rgba(color, 0.85),
-                    fillpattern=dict(shape="/", fgcolor=theme.surface, solidity=0.3) if i >= 8 else None,
+                    fillpattern=dict(shape="/" if i < 16 else "x", bgcolor=rgba(color, 0.85),
+                                     fgcolor=theme.surface, solidity=0.3)
+                    if i >= 8 else None,
                 )
             )
     fig.update_layout(hovermode="x unified")
@@ -440,17 +454,23 @@ def confidence_chart(table: pd.DataFrame, theme: Theme) -> go.Figure:
                  x_format=".0%", legend=False)
 
 
-def sensitivity_chart(assets: list[str], before: np.ndarray, after: np.ndarray, theme: Theme) -> go.Figure:
+def comparison_chart(
+    labels: list[str], before, after, theme: Theme, x_title: str, names: tuple[str, str] = ("Vorher", "Nachher")
+) -> go.Figure:
+    """Zwei Werte je Kategorie als gruppierte horizontale Balken."""
     fig = go.Figure()
-    for name, values, color in (("Vorher", before, theme.series[0]), ("Nachher", after, theme.series[1])):
+    for name, values, color in ((names[0], before, theme.series[0]), (names[1], after, theme.series[1])):
         fig.add_trace(
-            go.Bar(y=assets, x=values, name=name, orientation="h", marker=dict(color=color, line=dict(width=0)),
+            go.Bar(y=labels, x=values, name=name, orientation="h", marker=dict(color=color, line=dict(width=0)),
                    hovertemplate="%{y}: %{x:.1%}<extra>" + name + "</extra>")
         )
     fig.update_layout(barmode="group", bargap=0.35, bargroupgap=0.08)
     fig.update_yaxes(autorange="reversed", showgrid=False)
-    return style(fig, theme, height=_bar_height(len(assets), 2), x_title="Gewicht im Max-Sharpe-Portfolio",
-                 x_format=".0%")
+    return style(fig, theme, height=_bar_height(len(labels), 2), x_title=x_title, x_format=".0%")
+
+
+def sensitivity_chart(assets: list[str], before: np.ndarray, after: np.ndarray, theme: Theme) -> go.Figure:
+    return comparison_chart(assets, before, after, theme, "Gewicht im Max-Sharpe-Portfolio")
 
 
 def broadie_chart(exp: FrontierExperiment, theme: Theme) -> go.Figure:
@@ -536,3 +556,53 @@ def weight_distribution_chart(exp: StrategyExperiment, strategy_keys: list[str],
     )
     fig.update_layout(boxmode="group")
     return style(fig, theme, height=440, y_title="Gewicht", y_format=".0%")
+
+
+# ---------------------------------------------------------------------------
+# Mein Portfolio
+# ---------------------------------------------------------------------------
+
+
+def exposure_chart(shares: pd.Series, theme: Theme, limit: float | None = None,
+                   limited: set[str] | None = None) -> go.Figure:
+    """Anteile je Gruppe (Sektor, Land, Währung) mit optionaler Grenze für Klumpenrisiko."""
+    shares = shares[shares > 0.0005].sort_values(ascending=False)
+    labels = list(shares.index)
+    fig = go.Figure(
+        go.Bar(
+            y=labels, x=shares.to_numpy(), orientation="h", marker=dict(color=theme.series[0], line=dict(width=0)),
+            text=[pct(v) for v in shares], textposition="outside", textfont=dict(color=theme.ink2, size=12),
+            cliponaxis=False, hovertemplate="%{y}: %{x:.1%}<extra></extra>", name="Anteil",
+        )
+    )
+    if limit is not None and (limited is None or limited & set(labels)):
+        fig.add_vline(x=limit, line=dict(color=theme.ink2, width=1.5, dash="dash"))
+        fig.add_annotation(x=limit, y=1, yref="paper", yanchor="bottom", text=f"Grenze {pct(limit, 0)}",
+                           showarrow=False, font=dict(color=theme.ink2, size=12))
+    fig.update_yaxes(autorange="reversed", showgrid=False)
+    upper = max(float(shares.max()) if len(shares) else 0.0, limit or 0.0) * 1.18
+    fig.update_xaxes(range=[0, upper])
+    fig.update_layout(bargap=0.45)
+    return style(fig, theme, height=_bar_height(len(labels), 1, bar_px=18), x_title="Anteil am Depot",
+                 x_format=".0%", legend=False)
+
+
+def weight_risk_chart(labels: list[str], weights, risks, theme: Theme) -> go.Figure:
+    return comparison_chart(labels, weights, risks, theme, "Anteil", names=("Gewicht", "Risikoanteil"))
+
+
+def mix_curve_chart(curves: dict[str, pd.Series], theme: Theme, share: float) -> go.Figure:
+    """Depot-Volatilität in Abhängigkeit vom Anteil einer Beimischung."""
+    fig = go.Figure()
+    for i, (label, curve) in enumerate(curves.items()):
+        fig.add_trace(
+            go.Scatter(
+                x=curve.index, y=curve.to_numpy(), mode="lines", name=label,
+                line=dict(color=theme.series[i], width=2),
+                hovertemplate="Anteil %{x:.0%}<br>Volatilität %{y:.1%}<extra>" + label + "</extra>",
+            )
+        )
+    fig.add_vline(x=share, line=dict(color=theme.ink2, width=1.5, dash="dash"))
+    fig.update_layout(hovermode="x unified")
+    return style(fig, theme, height=380, x_title="Anteil der Beimischung", y_title="Volatilität p. a.",
+                 x_format=".0%", y_format=".0%")
