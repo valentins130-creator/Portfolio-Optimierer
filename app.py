@@ -1,20 +1,43 @@
 """Streamlit-Oberfläche des Portfolio-Optimierers.
 
-Start: ``streamlit run app.py``
+Start: ``python -m streamlit run app.py`` (oder einfach ``python app.py``)
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from datetime import date
 
-import numpy as np
-import pandas as pd
-import streamlit as st
+try:
+    import numpy as np
+    import pandas as pd
+    import streamlit as st
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-from portfolio_optimizer import charts, data, monte_carlo as mc, optimization as opt
-from portfolio_optimizer import instability as ins
-from portfolio_optimizer.estimators import COV_ESTIMATORS, MEAN_ESTIMATORS, estimate
-from portfolio_optimizer.formatting import num, pct, ratio, styled
+    from portfolio_optimizer import charts, data, monte_carlo as mc, optimization as opt
+    from portfolio_optimizer import instability as ins
+    from portfolio_optimizer.estimators import COV_ESTIMATORS, MEAN_ESTIMATORS, estimate
+    from portfolio_optimizer.formatting import num, pct, ratio, styled
+except ModuleNotFoundError as exc:
+    package = (exc.name or "").split(".")[0]
+    if package == "portfolio_optimizer":
+        raise
+    sys.exit(
+        f"Das Python-Paket „{package}“ ist für diesen Python-Interpreter nicht installiert:\n"
+        f"    {sys.executable}\n\n"
+        "Bitte im Terminal im Projektordner ausführen:\n"
+        "    python -m pip install -r requirements.txt\n"
+        "und die App danach mit „python -m streamlit run app.py“ starten."
+    )
+
+if __name__ == "__main__" and get_script_run_ctx(suppress_warning=True) is None:
+    # Direkt mit "python app.py" oder dem Start-Button von VS Code aufgerufen:
+    # Streamlit starten, das dieses Skript dann im Browser ausführt.
+    from streamlit.web import cli
+
+    sys.argv = ["streamlit", "run", os.path.abspath(__file__), *sys.argv[1:]]
+    sys.exit(cli.main())
 
 st.set_page_config(page_title="Portfolio-Optimierer", page_icon="📈", layout="wide")
 
