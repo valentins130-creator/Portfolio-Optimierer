@@ -664,11 +664,16 @@ def _target_weights(ctx, goal, report, est, rf, bounds, use_world) -> tuple[pd.S
                 current[world] = 0.0
             except Exception:  # ohne Welt-ETF weiterrechnen
                 infos.pop(world, None)
-        try:
-            return rb.cap_concentrations(current, infos, current_limits(), report.clusters), {"infos": infos, "prices": prices}
-        except rb.InfeasibleError as exc:
-            st.warning(f"{exc} Lockere die Grenzen oder lasse einen breit gestreuten ETF als Ausgleich zu.")
-            return None, {}
+        target, remaining = rb.closest_to_limits(current, infos, current_limits(), report.clusters)
+        if remaining:
+            st.warning(
+                "Mit den vorhandenen Positionen lassen sich nicht alle Grenzen einhalten. Der Vorschlag kommt "
+                "ihnen so nahe wie möglich, ohne neue Überschreitungen zu erzeugen. Verbleibender Überhang: "
+                + ", ".join(f"{label} +{pct(v)}" for label, v in list(remaining.items())[:4])
+                + ". Abhilfe: Grenzen lockern, den Welt-ETF als Ausgleich zulassen oder breiter gestreute "
+                "Positionen aufnehmen."
+            )
+        return target, {"infos": infos, "prices": prices, "unreachable": bool(remaining)}
     if est is None:
         st.info("Für dieses Ziel werden mindestens zwei Positionen mit gemeinsamer Kurshistorie benötigt.")
         return None, {}
@@ -751,7 +756,9 @@ def _rebalancing(ctx: PortfolioContext, report, est, rf, bounds, theme) -> None:
                                 current_limits())
     if goal == "limits":
         if after_report.exceeded:
-            st.info("Nach der Umschichtung noch über den Grenzen (Rundung oder ausgelassene Kleinbeträge): "
+            reason = ("nicht vollständig erreichbar, siehe oben" if extra.get("unreachable")
+                      else "Rundung oder ausgelassene Kleinbeträge")
+            st.info(f"Nach der Umschichtung noch über den Grenzen ({reason}): "
                     + ", ".join(f"{f.group} {pct(f.weight)}" for f in after_report.exceeded))
         else:
             st.success("Nach der Umschichtung liegen alle Konzentrationen innerhalb der Grenzen.")

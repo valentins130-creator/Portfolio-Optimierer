@@ -78,6 +78,71 @@ def cap_concentrations(
     return pd.Series(w, index=symbols)
 
 
+def closest_to_limits(
+    current: pd.Series,
+    infos: dict[str, SecurityInfo],
+    limits: Limits,
+    clusters: list[list[str]] = (),
+) -> tuple[pd.Series, dict[str, float]]:
+    """Wie ``cap_concentrations``, aber mit einem Vorschlag auch dann, wenn nicht alle
+    Grenzen erreichbar sind.
+
+    Grenzen, die das Depot heute einhält, bleiben eingehalten. Für die übrigen wird
+    zuerst der größte Überhang so klein wie möglich gemacht; danach werden auch die
+    kleineren Überschreitungen abgebaut, mit möglichst wenig Umschichtung.
+    Rückgabe: (Zielgewichte, verbleibender Überhang je Grenze).
+    """
+    try:
+        return cap_concentrations(current, infos, limits, clusters), {}
+    except InfeasibleError:
+        pass
+    symbols = list(current.index)
+    n = len(symbols)
+    w0 = current.to_numpy(dtype=float)
+    w0 = w0 / w0.sum()
+    a, b, labels = limit_constraints(symbols, infos, limits, [c for c in clusters if set(c) <= set(symbols)])
+    hard = a @ w0 <= b + 1e-9
+    if hard.all():  # das Depot hält bereits alle Grenzen ein
+        return pd.Series(w0, index=symbols), {}
+    a_hard, b_hard, a_soft, b_soft = a[hard], b[hard], a[~hard], b[~hard]
+    budget = {"type": "eq", "fun": lambda x: x[:n].sum() - 1, "jac": lambda x: np.r_[np.ones(n), 0.0]}
+
+    # Schritt 1: größten verbleibenden Überhang t minimieren (verletzte Grenzen dürfen um t überschritten werden)
+    stage1 = [budget, {"type": "ineq", "fun": lambda x: b_soft + x[n] - a_soft @ x[:n],
+                       "jac": lambda x: np.c_[-a_soft, np.ones(len(b_soft))]}]
+    if hard.any():
+        stage1.append({"type": "ineq", "fun": lambda x: b_hard - a_hard @ x[:n],
+                       "jac": lambda x: np.c_[-a_hard, np.zeros(len(b_hard))]})
+    res = minimize(lambda x: x[n], np.r_[w0, (a_soft @ w0 - b_soft).max()], jac=lambda x: np.r_[np.zeros(n), 1.0],
+                   method="SLSQP", bounds=[(0.0, 1.0)] * n + [(0.0, None)], constraints=stage1,
+                   options={"maxiter": 500, "ftol": 1e-12})
+    excess = float(max(res.x[n], 0.0)) + 1e-7
+
+    # Schritt 2: diesen Überhang einhalten, übrige Überschreitungen stark bestrafen,
+    # sonst möglichst wenig umschichten
+    penalty = 1e4
+
+    def objective(w):
+        over = np.clip(a_soft @ w - b_soft, 0.0, None)
+        return ((w - w0) ** 2).sum() + penalty * (over**2).sum()
+
+    def gradient(w):
+        over = np.clip(a_soft @ w - b_soft, 0.0, None)
+        return 2 * (w - w0) + 2 * penalty * a_soft.T @ over
+
+    stage2 = [{"type": "eq", "fun": lambda w: w.sum() - 1, "jac": lambda w: np.ones(n)},
+              {"type": "ineq", "fun": lambda w: b_soft + excess - a_soft @ w, "jac": lambda w: -a_soft}]
+    if hard.any():
+        stage2.append({"type": "ineq", "fun": lambda w: b_hard - a_hard @ w, "jac": lambda w: -a_hard})
+    res = minimize(objective, np.clip(res.x[:n], 0, 1), jac=gradient, method="SLSQP",
+                   bounds=[(0.0, 1.0)] * n, constraints=stage2, options={"maxiter": 500, "ftol": 1e-12})
+    w = np.clip(res.x, 0.0, None)
+    w = w / w.sum()
+    over = a @ w - b
+    remaining = {labels[i]: float(over[i]) for i in np.argsort(-over) if over[i] > 1e-4}
+    return pd.Series(w, index=symbols), remaining
+
+
 def trades(
     valuation: pd.DataFrame,
     target: pd.Series,

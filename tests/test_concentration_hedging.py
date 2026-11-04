@@ -157,3 +157,25 @@ def test_demo_portfolio_end_to_end():
     target = rb.cap_concentrations(weights, infos, conc.Limits(), report.clusters)
     after = conc.analyze(target, infos, weekly)
     assert not [f for f in after.findings if f.exceeded and f.excess > 1e-4]
+
+
+def test_closest_to_limits_when_limits_are_unreachable(returns):
+    infos = {"T1": _info("T1"), "T2": _info("T2"), "U1": _info("U1", "Versorger", "Deutschland", "EUR")}
+    current = pd.Series({"T1": 0.5, "T2": 0.3, "U1": 0.2})
+    limits = conc.Limits(position=0.4, sector=0.3, country=1.0, currency=1.0, cluster=1.0)
+    with pytest.raises(rb.InfeasibleError):
+        rb.cap_concentrations(current, infos, limits)
+    target, remaining = rb.closest_to_limits(current, infos, limits)
+    # U1 ist der einzige Versorger und darf die 30-%-Sektorgrenze nicht neu überschreiten:
+    # Technologie lässt sich daher nur auf 70 % drücken.
+    assert target.sum() == pytest.approx(1.0)
+    assert target["U1"] == pytest.approx(0.3, abs=1e-4)
+    assert target["T1"] + target["T2"] == pytest.approx(0.7, abs=1e-4)
+    assert max(target["T1"], target["T2"]) <= 0.4 + 1e-3  # die behebbare Einzelgrenze wird mit abgebaut
+    assert list(remaining) == ["Sektor Technologie"]
+    assert remaining["Sektor Technologie"] == pytest.approx(0.4, abs=1e-3)
+    # Erreichbare Grenzen: dasselbe Ergebnis wie cap_concentrations
+    easy = conc.Limits(position=0.6, sector=1.0, country=1.0, currency=1.0, cluster=1.0)
+    target2, remaining2 = rb.closest_to_limits(current, infos, easy)
+    assert remaining2 == {}
+    pd.testing.assert_series_equal(target2, rb.cap_concentrations(current, infos, easy))
