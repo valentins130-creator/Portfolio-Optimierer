@@ -56,6 +56,8 @@ def test_fetch_prices_reports_missing_tickers(monkeypatch):
     assert missing == ["XXXX"]
     assert calls["auto_adjust"] is True
     assert calls["end"] == pd.Timestamp("2024-02-01")  # Enddatum inklusive
+    data.fetch_prices(["SPY"], date(2024, 1, 1), date(2024, 1, 31), adjusted=False)
+    assert calls["auto_adjust"] is False  # tatsächliche Schlusskurse für die Depotbewertung
 
 
 def test_load_csv_german_format():

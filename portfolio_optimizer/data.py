@@ -76,10 +76,12 @@ def _extract_close(raw: pd.DataFrame, tickers: Sequence[str]) -> pd.DataFrame:
 
 
 def fetch_prices(
-    tickers: Sequence[str], start: date, end: date
+    tickers: Sequence[str], start: date, end: date, adjusted: bool = True
 ) -> tuple[pd.DataFrame, list[str]]:
-    """Lädt dividendenbereinigte Schlusskurse von Yahoo Finance.
+    """Lädt Schlusskurse von Yahoo Finance.
 
+    ``adjusted``: dividendenbereinigt (für Renditen und Risiko); sonst die tatsächlichen
+    Schlusskurse, nur um Splits bereinigt (für die Bewertung eines Depots).
     Rückgabe: (Kurse, Ticker ohne Daten).
     """
     import yfinance as yf
@@ -89,7 +91,7 @@ def fetch_prices(
         tickers,
         start=pd.Timestamp(start),
         end=pd.Timestamp(end) + pd.Timedelta(days=1),  # Enddatum ist bei yfinance exklusiv
-        auto_adjust=True,
+        auto_adjust=adjusted,
         progress=False,
         threads=True,
     )

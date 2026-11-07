@@ -182,6 +182,33 @@ class Instrument:
     sector: str | None = None
 
 
+LOCAL_TZ = "Europe/Berlin"
+
+
+def fx_ticker(currency: str) -> str:
+    """Yahoo-Symbol für den Kurs "Fremdwährung je Euro", z. B. ``EURUSD=X``."""
+    return f"EUR{currency}=X"
+
+
+def price_in_euro(price: float, currency: str, fx: dict[str, float]) -> float:
+    """Einzelkurs in Euro; ``fx`` enthält Einheiten Fremdwährung je Euro."""
+    major, divisor = major_currency(currency)
+    value = price / divisor
+    if major == BASE_CURRENCY:
+        return value
+    return value / fx[major] if fx.get(major) else float("nan")
+
+
+def last_quotes(close: pd.DataFrame) -> pd.DataFrame:
+    """Letzter gültiger Kurs je Spalte mit Zeitstempel (Spalten ``price`` und ``time``)."""
+    rows = {}
+    for col in close.columns:
+        series = close[col].dropna()
+        if not series.empty:
+            rows[col] = (float(series.iloc[-1]), series.index[-1])
+    return pd.DataFrame.from_dict(rows, orient="index", columns=["price", "time"])
+
+
 def to_base_currency(prices: pd.DataFrame, currencies: dict[str, str], fx: pd.DataFrame) -> pd.DataFrame:
     """Rechnet Kurse in Euro um.
 
@@ -290,16 +317,41 @@ class YahooMarketData:
             info.country = country_de(data.get("country"))
         return info
 
-    def prices(self, symbols: list[str], start: date, end: date) -> pd.DataFrame:
-        close, _ = fetch_prices(list(symbols), start, end)
+    def prices(self, symbols: list[str], start: date, end: date, adjusted: bool = True) -> pd.DataFrame:
+        """Tägliche Schlusskurse in Handelswährung; ``adjusted``: dividendenbereinigt."""
+        close, _ = fetch_prices(list(symbols), start, end, adjusted)
         return close
 
     def fx_rates(self, currencies: list[str], start: date, end: date) -> pd.DataFrame:
-        pairs = {f"EUR{c}=X": c for c in sorted(set(currencies)) if c != BASE_CURRENCY}
+        pairs = {fx_ticker(c): c for c in sorted(set(currencies)) if c != BASE_CURRENCY}
         if not pairs:
             return pd.DataFrame()
         close, _ = fetch_prices(list(pairs), start, end)
         return close.rename(columns=pairs)
+
+    def live_prices(self, tickers: list[str]) -> pd.DataFrame:
+        """Letzte Minutenkurse des laufenden bzw. letzten Handelstags (bei Yahoo meist ca. 15 Min. verzögert).
+
+        Rückgabe je Ticker: Kurs in Handelswährung und Zeitpunkt (deutsche Zeit). Ticker ohne
+        Intraday-Daten fehlen; dann gilt der letzte Schlusskurs.
+        """
+        import yfinance as yf
+
+        tickers = list(tickers)
+        raw = yf.download(tickers, period="1d", interval="1m", auto_adjust=False, prepost=False,
+                          progress=False, threads=True)
+        if raw is None or raw.empty:
+            return pd.DataFrame(columns=["price", "time"])
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw.xs("Close", axis=1, level=1)
+        else:
+            close = raw[["Close"]].rename(columns={"Close": tickers[0]})
+        close = close.copy()
+        close.columns = [str(c) for c in close.columns]
+        index = pd.DatetimeIndex(close.index)
+        index = index.tz_localize("UTC") if index.tz is None else index
+        close.index = index.tz_convert(LOCAL_TZ).tz_localize(None)
+        return last_quotes(close)
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +534,8 @@ class DemoMarketData:
             country=country, sector_weights=dict(_DEMO_FUND_SECTORS.get(symbol, {})),
         )
 
-    def prices(self, symbols: list[str], start: date, end: date) -> pd.DataFrame:
+    def prices(self, symbols: list[str], start: date, end: date, adjusted: bool = True) -> pd.DataFrame:
+        """Die fiktiven Wertpapiere schütten nichts aus; bereinigte und tatsächliche Kurse sind gleich."""
         prices, _ = self._data()
         cols = [s for s in symbols if s in prices.columns]
         return prices.loc[pd.Timestamp(start) : pd.Timestamp(end), cols]
@@ -491,6 +544,10 @@ class DemoMarketData:
         _, fx = self._data()
         cols = [c for c in sorted(set(currencies)) if c in fx.columns]
         return fx.loc[pd.Timestamp(start) : pd.Timestamp(end), cols]
+
+    def live_prices(self, tickers: list[str]) -> pd.DataFrame:
+        """Die Demo kennt keine Intraday-Kurse; es gelten die Schlusskurse."""
+        return pd.DataFrame(columns=["price", "time"])
 
 
 def get_provider(key: str):
