@@ -1,14 +1,22 @@
-[theme.light]
+# Helles Design mit dezenten blauen Akzenten – unabhängig davon, ob das Betriebssystem
+# auf Dunkel steht. (Kennzahl-Kacheln und Abschnittsköpfe färbt ui/common.py ein.)
+[theme]
+base = "light"
 primaryColor = "#2a78d6"
-backgroundColor = "#fcfcfb"
-secondaryBackgroundColor = "#f0efec"
-textColor = "#0b0b0b"
+backgroundColor = "#fbfbfa"
+secondaryBackgroundColor = "#eef2f7"
+textColor = "#16191d"
+linkColor = "#1c5cab"
+borderColor = "#d6dfea"
+dataframeHeaderBackgroundColor = "#eef4fc"
 
-[theme.dark]
-primaryColor = "#3987e5"
-backgroundColor = "#1a1a19"
-secondaryBackgroundColor = "#262624"
-textColor = "#f0efec"
+[global]
+# Seitenübergreifend behaltene Eingaben (ui/common.keep_page_state) sind gewollt
+disableWidgetStateDuplicationWarning = true
+
+[client]
+# Kein "Deploy"-Knopf und keine Entwickleroptionen im Menü
+toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false

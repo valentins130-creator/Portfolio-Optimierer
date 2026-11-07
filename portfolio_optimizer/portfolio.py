@@ -1,4 +1,4 @@
-"""Das eigene Portfolio: Positionen, Speichern/Laden, Bewertung und Aufteilung."""
+"""Das eigene Portfolio: Transaktionen, Bestände, Speichern/Laden, Bewertung und Aufteilung."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import io
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -16,33 +16,155 @@ from .data import _parse_number_column
 from .market import BASE_CURRENCY, DIVERSIFIED, FUND_COUNTRY, UNKNOWN, SecurityInfo, major_currency
 
 
+BUY, SELL = "Kauf", "Verkauf"
+
+
+def parse_date(value) -> date | None:
+    """Datum aus ISO (2024-03-01) oder deutschem Format (01.03.2024); leer -> None."""
+    if value is None or (isinstance(value, float) and np.isnan(value)) or str(value).strip() in ("", "nan", "None"):
+        return None
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    fmt = "%d.%m.%Y" if re.match(r"^\d{1,2}\.\d{1,2}\.\d{4}$", text) else "%Y-%m-%d"
+    try:
+        return datetime.strptime(text[:10], fmt).date()
+    except ValueError as exc:
+        raise ValueError(f"Ungültiges Datum: {text}") from exc
+
+
+@dataclass
+class Transaction:
+    """Ein Kauf oder Verkauf. Kurs je Stück in Euro, wie im Depotauszug."""
+
+    symbol: str
+    kind: str = BUY
+    shares: float = 0.0
+    price: float | None = None
+    date: date | None = None
+
+    @property
+    def amount(self) -> float | None:
+        return self.shares * self.price if self.price else None
+
+    def to_dict(self) -> dict:
+        return {"symbol": self.symbol, "kind": self.kind, "shares": self.shares, "price": self.price,
+                "date": self.date.isoformat() if self.date else None}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Transaction:
+        price = data.get("price")
+        return cls(
+            symbol=str(data["symbol"]),
+            kind=SELL if data.get("kind") == SELL else BUY,
+            shares=float(data.get("shares", 0)),
+            price=float(price) if price not in (None, "") else None,
+            date=parse_date(data.get("date")),
+        )
+
+
+def num_text(x: float) -> str:
+    return f"{x:g}".replace(".", ",")
+
+
+def _order(t: Transaction) -> tuple:
+    # Ohne Datum zuerst (Altbestand); am selben Tag Käufe vor Verkäufen
+    return (t.date or date.min, 0 if t.kind == BUY else 1)
+
+
+def fifo(transactions: list[Transaction]) -> tuple[float, float | None, float | None]:
+    """Bestand, Einstandswert der gehaltenen Stücke und realisierter Gewinn nach FIFO.
+
+    Einstandswert bzw. Gewinn sind ``None``, wenn ein dafür nötiger Kurs fehlt.
+    Wirft ``ValueError``, wenn mehr verkauft als gehalten wird.
+    """
+    lots, realized = _replay(transactions)
+    shares = sum(lot[0] for lot in lots)
+    cost = sum(lot[0] * lot[1] for lot in lots) if all(lot[1] is not None for lot in lots) else None
+    return shares, cost, realized
+
+
+def sale_gain(transactions: list[Transaction], shares: float, price: float) -> float | None:
+    """Gewinn, wenn jetzt ``shares`` Stück zu ``price`` verkauft würden (FIFO: älteste Stücke zuerst)."""
+    lots, _ = _replay(transactions)
+    gain, remaining = 0.0, shares
+    for lot_shares, lot_price in lots:
+        if remaining <= 1e-9:
+            break
+        if lot_price is None:
+            return None
+        take = min(lot_shares, remaining)
+        gain += take * (price - lot_price)
+        remaining -= take
+    return gain
+
+
+def _replay(transactions: list[Transaction]) -> tuple[list[list], float | None]:
+    """Spielt die Transaktionen ab: verbleibende Kauf-Tranchen [Stück, Kurs] und realisierter Gewinn."""
+    lots: list[list] = []  # [Stück, Kurs]
+    realized, known = 0.0, True
+    for t in sorted(transactions, key=_order):
+        if t.kind == BUY:
+            lots.append([t.shares, t.price])
+            continue
+        remaining = t.shares
+        while remaining > 1e-9:
+            if not lots:
+                when = f" am {t.date:%d.%m.%Y}" if t.date else ""
+                raise ValueError(f"Der Verkauf von {num_text(t.shares)} Stück {t.symbol}{when} übersteigt den Bestand.")
+            lot = lots[0]
+            take = min(lot[0], remaining)
+            if lot[1] is None or t.price is None:
+                known = False
+            else:
+                realized += take * (t.price - lot[1])
+            lot[0] -= take
+            remaining -= take
+            if lot[0] <= 1e-9:
+                lots.pop(0)
+    return lots, realized if known else None
+
+
 @dataclass
 class Position:
+    """Aktueller Bestand eines Wertpapiers, abgeleitet aus seinen Transaktionen."""
+
     info: SecurityInfo
     shares: float
-    purchase_price: float | None = None  # Einstandskurs je Stück in Euro
+    purchase_price: float | None = None  # Ø Einstandskurs der gehaltenen Stücke (FIFO) in Euro
+    realized: float | None = 0.0  # realisierter Gewinn aus Verkäufen
+    first_date: date | None = None
 
     @property
     def symbol(self) -> str:
         return self.info.symbol
 
-    def to_dict(self) -> dict:
-        return {"shares": self.shares, "purchase_price": self.purchase_price, **self.info.to_dict()}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Position:
-        price = data.get("purchase_price")
-        return cls(
-            info=SecurityInfo.from_dict(data),
-            shares=float(data.get("shares", 0)),
-            purchase_price=float(price) if price not in (None, "") else None,
-        )
-
 
 @dataclass
 class Portfolio:
     name: str
-    positions: list[Position] = field(default_factory=list)
+    securities: dict[str, SecurityInfo] = field(default_factory=dict)
+    transactions: list[Transaction] = field(default_factory=list)
+
+    def sale_gain(self, symbol: str, shares: float, price: float) -> float | None:
+        """Gewinn eines gedachten Verkaufs heute nach FIFO; ``None`` ohne Kaufkurse."""
+        return sale_gain(self.transactions_of(symbol), shares, price)
+
+    def transactions_of(self, symbol: str) -> list[Transaction]:
+        return [t for t in self.transactions if t.symbol == symbol]
+
+    @property
+    def positions(self) -> list[Position]:
+        out = []
+        for symbol, info in self.securities.items():
+            txs = self.transactions_of(symbol)
+            shares, cost, realized = fifo(txs)
+            if shares <= 1e-9:
+                continue
+            dates = [t.date for t in txs if t.date]
+            out.append(Position(info, shares, cost / shares if cost is not None else None, realized,
+                                min(dates) if dates else None))
+        return out
 
     @property
     def symbols(self) -> list[str]:
@@ -51,46 +173,97 @@ class Portfolio:
     def get(self, symbol: str) -> Position | None:
         return next((p for p in self.positions if p.symbol == symbol), None)
 
-    def add(self, info: SecurityInfo, shares: float, purchase_price: float | None = None) -> None:
-        """Fügt eine Position hinzu oder stockt eine bestehende auf (Einstandskurs gemittelt)."""
+    def realized_gains(self) -> float | None:
+        values = [fifo(self.transactions_of(s))[2] for s in self.securities]
+        return None if any(v is None for v in values) else float(sum(values))
+
+    def _check(self, symbol: str) -> None:
+        fifo(self.transactions_of(symbol))
+
+    def add_transaction(self, info: SecurityInfo, kind: str, shares: float, price: float | None = None,
+                        when: date | None = None) -> None:
+        """Erfasst einen Kauf oder Verkauf; ein Verkauf darf den Bestand nicht übersteigen."""
         if shares <= 0:
             raise ValueError("Die Stückzahl muss größer als null sein.")
-        price = purchase_price if purchase_price else None
-        existing = self.get(info.symbol)
-        if existing is None:
-            self.positions.append(Position(info, float(shares), price))
-            return
-        total = existing.shares + shares
-        if existing.purchase_price is not None and price is not None:
-            existing.purchase_price = (existing.shares * existing.purchase_price + shares * price) / total
-        else:
-            existing.purchase_price = None  # Einstandskurs nicht mehr bestimmbar
-        existing.shares = total
-        existing.info = info
+        if kind not in (BUY, SELL):
+            raise ValueError(f"Unbekannte Transaktionsart: {kind}")
+        self.securities[info.symbol] = info
+        self.transactions.append(Transaction(info.symbol, kind, float(shares), price or None, when))
+        try:
+            self._check(info.symbol)
+        except ValueError:
+            self.transactions.pop()
+            if not self.transactions_of(info.symbol):
+                del self.securities[info.symbol]
+            raise
+
+    def add(self, info: SecurityInfo, shares: float, purchase_price: float | None = None,
+            when: date | None = None) -> None:
+        """Kauf erfassen (Kurzform)."""
+        self.add_transaction(info, BUY, shares, purchase_price, when)
+
+    def update_transaction(self, index: int, **changes) -> None:
+        """Ändert eine Transaktion; ungültige Änderungen (z. B. Überverkauf) werden zurückgenommen."""
+        tx = self.transactions[index]
+        before = Transaction(**vars(tx))
+        for key, value in changes.items():
+            setattr(tx, key, value)
+        try:
+            if tx.shares <= 0:
+                raise ValueError("Die Stückzahl muss größer als null sein.")
+            self._check(tx.symbol)
+        except ValueError:
+            self.transactions[index] = before
+            raise
+
+    def remove_transaction(self, index: int) -> None:
+        tx = self.transactions.pop(index)
+        try:
+            self._check(tx.symbol)
+        except ValueError:
+            self.transactions.insert(index, tx)
+            raise
+        if not self.transactions_of(tx.symbol):
+            self.securities.pop(tx.symbol, None)
 
     def remove(self, symbol: str) -> None:
-        self.positions = [p for p in self.positions if p.symbol != symbol]
+        """Entfernt ein Wertpapier mit allen Transaktionen."""
+        self.transactions = [t for t in self.transactions if t.symbol != symbol]
+        self.securities.pop(symbol, None)
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
+            "format": 2,
             "base_currency": BASE_CURRENCY,
             "updated": datetime.now().isoformat(timespec="seconds"),
-            "positions": [p.to_dict() for p in self.positions],
+            "securities": {s: info.to_dict() for s, info in self.securities.items()},
+            "transactions": [t.to_dict() for t in self.transactions],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> Portfolio:
-        return cls(name=str(data.get("name") or "Portfolio"),
-                   positions=[Position.from_dict(p) for p in data.get("positions", [])])
+        pf = cls(name=str(data.get("name") or "Portfolio"))
+        if "transactions" in data:
+            pf.securities = {s: SecurityInfo.from_dict(info) for s, info in data.get("securities", {}).items()}
+            pf.transactions = [Transaction.from_dict(t) for t in data["transactions"]]
+        else:  # altes Format: Positionen mit Stückzahl und Kaufkurs, ohne Datum
+            for item in data.get("positions", []):
+                info = SecurityInfo.from_dict(item)
+                price = item.get("purchase_price")
+                pf.securities[info.symbol] = info
+                pf.transactions.append(Transaction(info.symbol, BUY, float(item.get("shares", 0)),
+                                                   float(price) if price not in (None, "") else None, None))
+        return pf
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
 
     def to_csv(self) -> str:
-        rows = [{"Symbol": p.symbol, "Name": p.info.name, "Stück": p.shares, "Kaufkurs": p.purchase_price}
-                for p in self.positions]
-        return pd.DataFrame(rows, columns=["Symbol", "Name", "Stück", "Kaufkurs"]).to_csv(
+        rows = [{"Datum": t.date.strftime("%d.%m.%Y") if t.date else "", "Typ": t.kind, "Symbol": t.symbol,
+                 "Name": self.securities[t.symbol].name if t.symbol in self.securities else "",
+                 "Stück": t.shares, "Kurs": t.price} for t in sorted(self.transactions, key=_order)]
+        return pd.DataFrame(rows, columns=["Datum", "Typ", "Symbol", "Name", "Stück", "Kurs"]).to_csv(
             index=False, sep=";", decimal=","
         )
 
@@ -99,11 +272,16 @@ _CSV_COLUMNS = {
     "symbol": {"symbol", "ticker", "kürzel", "wertpapier"},
     "shares": {"stück", "stueck", "anzahl", "menge", "shares", "quantity", "bestand"},
     "price": {"kaufkurs", "einstandskurs", "einstand", "kurs", "price", "purchase_price"},
+    "date": {"datum", "kaufdatum", "date", "handelstag", "ausführung"},
+    "kind": {"typ", "art", "transaktion", "type", "side"},
 }
 
 
-def read_positions_csv(source: bytes | str) -> list[tuple[str, float, float | None]]:
-    """Liest (Symbol, Stück, Kaufkurs) aus einer CSV-Datei mit deutschen oder englischen Spaltennamen."""
+def read_transactions_csv(source: bytes | str) -> list[tuple[str, str, float, float | None, date | None]]:
+    """Liest (Symbol, Typ, Stück, Kurs, Datum) aus einer CSV-Datei mit deutschen oder englischen Spalten.
+
+    Pflicht sind Symbol und Stück; ohne Typ-Spalte gilt jede Zeile als Kauf.
+    """
     text = source.decode("utf-8-sig") if isinstance(source, bytes) else source
     try:
         df = pd.read_csv(io.StringIO(text), sep=None, engine="python", dtype=str)
@@ -120,12 +298,22 @@ def read_positions_csv(source: bytes | str) -> list[tuple[str, float, float | No
     shares = _parse_number_column(df[found["shares"]])
     prices = _parse_number_column(df[found["price"]]) if "price" in found else pd.Series(np.nan, index=df.index)
     rows = []
-    for symbol, n, price in zip(df[found["symbol"]], shares, prices):
-        if isinstance(symbol, str) and symbol.strip() and pd.notna(n) and n > 0:
-            rows.append((symbol.strip().upper(), float(n), float(price) if pd.notna(price) and price > 0 else None))
+    for i, (symbol, n, price) in enumerate(zip(df[found["symbol"]], shares, prices)):
+        if not (isinstance(symbol, str) and symbol.strip() and pd.notna(n) and n > 0):
+            continue
+        kind_text = str(df[found["kind"]].iloc[i]).strip().lower() if "kind" in found else ""
+        kind = SELL if kind_text in ("verkauf", "sell", "v", "s") else BUY
+        when = parse_date(df[found["date"]].iloc[i]) if "date" in found else None
+        rows.append((symbol.strip().upper(), kind, float(n), float(price) if pd.notna(price) and price > 0 else None,
+                     when))
     if not rows:
-        raise ValueError("In der CSV-Datei wurden keine Positionen gefunden.")
+        raise ValueError("In der CSV-Datei wurden keine Transaktionen gefunden.")
     return rows
+
+
+def read_positions_csv(source: bytes | str) -> list[tuple[str, float, float | None]]:
+    """Kurzform für Bestandslisten: (Symbol, Stück, Kaufkurs) aller Käufe."""
+    return [(s, n, p) for s, kind, n, p, _ in read_transactions_csv(source) if kind == BUY]
 
 
 def _slug(name: str) -> str:
@@ -187,9 +375,10 @@ def valuation(portfolio: Portfolio, prices_eur: pd.Series) -> pd.DataFrame:
             "symbol": p.symbol, "name": p.info.name, "type": p.info.quote_type, "shares": p.shares,
             "price": price, "value": value, "purchase_price": p.purchase_price or np.nan, "cost": cost,
             "pnl": value - cost, "pnl_pct": value / cost - 1 if cost and cost > 0 else np.nan,
+            "realized": np.nan if p.realized is None else p.realized, "first_date": p.first_date,
         })
     df = pd.DataFrame(rows, columns=["symbol", "name", "type", "shares", "price", "value", "purchase_price",
-                                     "cost", "pnl", "pnl_pct"])
+                                     "cost", "pnl", "pnl_pct", "realized", "first_date"])
     total = df["value"].sum(min_count=1)
     df["weight"] = df["value"] / total if total and total > 0 else np.nan
     return df.set_index("symbol")

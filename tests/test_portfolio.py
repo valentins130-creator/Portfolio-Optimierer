@@ -50,7 +50,7 @@ def test_read_positions_csv_german_and_english():
     assert read_positions_csv(german.encode()) == [("AAPL", 10.0, 123.45), ("SAP.DE", 2.5, None)]
     english = "ticker,shares,price\nMSFT,3,250.5\n"
     assert read_positions_csv(english) == [("MSFT", 3.0, 250.5)]
-    assert read_positions_csv(Portfolio("x").to_csv() + "AAPL;Apple;1;2\n") == [("AAPL", 1.0, 2.0)]
+    assert read_positions_csv(Portfolio("x").to_csv() + ";Kauf;AAPL;Apple;1;2\n") == [("AAPL", 1.0, 2.0)]
     with pytest.raises(ValueError):
         read_positions_csv("Name;Wert\nA;1\n")
 

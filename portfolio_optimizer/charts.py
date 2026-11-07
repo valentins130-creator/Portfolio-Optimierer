@@ -67,7 +67,8 @@ FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
 # Feste Rollen der Portfolios über alle Diagramme hinweg. Das eigene Depot ist der
 # Ausgangspunkt und erscheint deshalb zurückhaltend in dunklem Grau.
-PORTFOLIO_SLOTS = {"Ausgewählt": 0, "Max-Sharpe": 1, "Minimum-Varianz": 2}
+TARGET_PORTFOLIO = "Effizient bei Zielrisiko"
+PORTFOLIO_SLOTS = {TARGET_PORTFOLIO: 0, "Max-Sharpe": 1, "Minimum-Varianz": 2}
 OWN_PORTFOLIO = "Mein Portfolio"
 
 
@@ -279,9 +280,9 @@ def frontier_chart(
             hovertemplate="<b>%{text}</b><br>" + hover + "<extra></extra>",
         )
     )
-    symbols = {"Ausgewählt": "diamond", "Max-Sharpe": "star", "Minimum-Varianz": "circle", OWN_PORTFOLIO: "square"}
-    # Das ausgewählte Portfolio zuletzt zeichnen: Es liegt oft genau auf dem Max-Sharpe-Stern.
-    for name, (vol, ret) in sorted(portfolios.items(), key=lambda item: item[0] == "Ausgewählt"):
+    symbols = {TARGET_PORTFOLIO: "diamond", "Max-Sharpe": "star", "Minimum-Varianz": "circle", OWN_PORTFOLIO: "square"}
+    # Das Zielrisiko-Portfolio zuletzt zeichnen: Es liegt oft genau auf einem anderen Punkt.
+    for name, (vol, ret) in sorted(portfolios.items(), key=lambda item: item[0] == TARGET_PORTFOLIO):
         own = name == OWN_PORTFOLIO
         fig.add_trace(
             go.Scatter(
@@ -331,8 +332,13 @@ def weights_chart(weights: pd.DataFrame, theme: Theme) -> go.Figure:
     return style(fig, theme, height=height, x_title="Gewicht", x_format=".0%")
 
 
-def transition_chart(frontier: Frontier, asset_names: list[str], theme: Theme) -> go.Figure:
-    """Gewichte entlang des effizienten Rands (Transition Map)."""
+def transition_chart(frontier: Frontier, asset_names: list[str], theme: Theme,
+                     marker: float | None = None) -> go.Figure:
+    """Zusammensetzung der effizienten Portfolios je Risikoniveau (Transition Map).
+
+    Senkrecht gelesen: Gewichte des effizienten Portfolios bei dieser Volatilität.
+    ``marker``: Volatilität, an der eine senkrechte Linie das gewählte Zielrisiko zeigt.
+    """
     fig = go.Figure()
     has_short = (frontier.weights < -1e-9).any()
     for i, name in enumerate(asset_names):
@@ -353,9 +359,14 @@ def transition_chart(frontier: Frontier, asset_names: list[str], theme: Theme) -
                     if i >= 8 else None,
                 )
             )
+    if marker is not None:
+        fig.add_vline(x=marker, line=dict(color=theme.ink, width=2, dash="dash"))
+        fig.add_annotation(x=marker, y=0.98, yref="paper", xanchor="left", yanchor="top", xshift=4,
+                           text="Zielrisiko", showarrow=False, font=dict(color=theme.ink, size=12),
+                           bgcolor=rgba(theme.surface, 0.85), borderpad=2)
     fig.update_layout(hovermode="x unified")
-    return style(fig, theme, height=420, x_title="Volatilität p. a.", y_title="Gewicht",
-                 x_format=".0%", y_format=".0%")
+    return style(fig, theme, height=420, x_title="Volatilität p. a. (Risiko des effizienten Portfolios)",
+                 y_title="Gewicht", x_format=".0%", y_format=".0%")
 
 
 # ---------------------------------------------------------------------------
@@ -606,3 +617,51 @@ def mix_curve_chart(curves: dict[str, pd.Series], theme: Theme, share: float) ->
     fig.update_layout(hovermode="x unified")
     return style(fig, theme, height=380, x_title="Anteil der Beimischung", y_title="Volatilität p. a.",
                  x_format=".0%", y_format=".0%")
+
+
+# ---------------------------------------------------------------------------
+# Wertentwicklung des Depots
+# ---------------------------------------------------------------------------
+
+
+def value_chart(value: pd.Series, invested: pd.Series, theme: Theme) -> go.Figure:
+    """Depotwert im Vergleich zum netto eingezahlten Kapital."""
+    blue = theme.series[0]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=value.index, y=value.to_numpy(), name="Depotwert", mode="lines", line=dict(color=blue, width=2),
+        fill="tozeroy", fillcolor=rgba(blue, 0.10), hovertemplate="%{y:,.0f} €<extra>Depotwert</extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=invested.index, y=invested.to_numpy(), name="Eingezahlt (netto)", mode="lines", line_shape="hv",
+        line=dict(color=theme.ink2, width=1.5, dash="dash"), hovertemplate="%{y:,.0f} €<extra>Eingezahlt</extra>",
+    ))
+    fig.update_layout(hovermode="x unified")
+    return style(fig, theme, height=380, y_title="Euro", y_format=",.0f")
+
+
+def benchmark_chart(own: pd.Series, index: pd.Series, label: str, theme: Theme) -> go.Figure:
+    """Zeitgewichtete Wertentwicklung des Depots gegen einen Index (beide Start = 100)."""
+    fig = go.Figure()
+    for name, series, color in (("Mein Depot (zeitgewichtet)", own, theme.series[0]), (label, index, theme.series[1])):
+        fig.add_trace(go.Scatter(
+            x=series.index, y=series.to_numpy(), name=name, mode="lines", line=dict(color=color, width=2),
+            hovertemplate="%{y:,.1f}<extra>" + name + "</extra>",
+        ))
+    fig.add_hline(y=100, line=dict(color=theme.axis, width=1))
+    fig.update_layout(hovermode="x unified")
+    return style(fig, theme, height=380, y_title="Wertentwicklung (Start = 100)", y_format=",.0f")
+
+
+def position_pnl_chart(pnl: pd.DataFrame, theme: Theme) -> go.Figure:
+    """Gewinn/Verlust je Position (realisiert und unrealisiert) im Zeitverlauf."""
+    fig = go.Figure()
+    for i, name in enumerate(pnl.columns):
+        fig.add_trace(go.Scatter(
+            x=pnl.index, y=pnl[name].to_numpy(), name=name, mode="lines",
+            line=dict(color=asset_color(theme, i), width=2, dash=asset_dash(i)),
+            hovertemplate="%{y:,.0f} €<extra>" + name + "</extra>",
+        ))
+    fig.add_hline(y=0, line=dict(color=theme.axis, width=1))
+    fig.update_layout(hovermode="x unified")
+    return style(fig, theme, height=400, y_title="Gewinn/Verlust in Euro", y_format=",.0f")

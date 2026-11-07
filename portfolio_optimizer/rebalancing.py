@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -149,6 +151,7 @@ def trades(
     prices: pd.Series,
     whole_shares: bool = True,
     min_trade: float = 0.0,
+    sale_gain: Callable[[str, float, float], float | None] | None = None,
 ) -> pd.DataFrame:
     """Käufe und Verkäufe, um vom aktuellen Depot (``valuation``) zu ``target`` zu kommen.
 
@@ -157,7 +160,8 @@ def trades(
     landet über ihrem Zielgewicht, ein kleiner Rest bleibt als Liquidität.
     Gewichte nachher beziehen sich auf den Depotwert vorher (inklusive dieses Rests).
     Spalten: Stückänderung, Betrag (positiv = Kauf), Gewicht vorher/nachher,
-    realisierter Gewinn bei Verkäufen (wenn der Kaufkurs bekannt ist).
+    realisierter Gewinn bei Verkäufen (wenn der Kaufkurs bekannt ist). ``sale_gain(Symbol,
+    Stück, Kurs)`` berechnet ihn aus den Kauf-Tranchen (FIFO); ohne ihn gilt der Ø-Kaufkurs.
     """
     total = float(valuation["value"].sum())
     symbols = list(dict.fromkeys([*valuation.index, *target.index]))
@@ -174,8 +178,12 @@ def trades(
         amount = shares * price if price > 0 else 0.0
         if abs(amount) < min_trade:
             shares, amount = 0.0, 0.0
-        purchase = valuation["purchase_price"].get(s, np.nan) if s in valuation.index else np.nan
-        realized = -shares * (price - purchase) if shares < 0 and pd.notna(purchase) else np.nan
+        realized = np.nan
+        if shares < 0 and sale_gain is not None:
+            gain = sale_gain(s, -shares, price)
+            realized = np.nan if gain is None else gain
+        elif shares < 0 and s in valuation.index and pd.notna(valuation.at[s, "purchase_price"]):
+            realized = -shares * (price - valuation.at[s, "purchase_price"])
         rows.append({"symbol": s, "shares_delta": shares, "amount": amount, "value_before": current,
                      "value_after": current + amount, "realized_gain": realized})
     df = pd.DataFrame(rows).set_index("symbol")

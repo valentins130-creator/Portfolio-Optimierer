@@ -140,6 +140,8 @@ def test_trades_round_conservatively_and_report_gains():
     assert tr["value_after"].sum() <= 2000
     skipped = rb.trades(val, target, prices, whole_shares=False, min_trade=600)
     assert skipped.loc["A", "amount"] == 0 and skipped.loc["C", "amount"] == 0
+    fifo = rb.trades(val, target, prices, whole_shares=True, sale_gain=lambda s, n, px: n * (px - 50.0))
+    assert fifo.loc["A", "realized_gain"] == pytest.approx(5 * 50)  # Gewinn aus den Kauf-Tranchen
 
 
 def test_demo_portfolio_end_to_end():

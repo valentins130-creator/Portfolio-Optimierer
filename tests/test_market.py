@@ -129,3 +129,32 @@ def test_yahoo_info_for_stock_and_funds(fake_yfinance):
     bonds = provider.info("EUNH.DE")
     assert bonds.sector == "Anleihen" and bonds.sector_weights == {}
     assert bonds.currency == "EUR"  # aus der Börsenendung abgeleitet
+
+
+def test_price_in_euro_and_fx_ticker():
+    assert market.fx_ticker("USD") == "EURUSD=X"
+    assert market.price_in_euro(110.0, "USD", {"USD": 1.1}) == pytest.approx(100.0)
+    assert market.price_in_euro(1000.0, "GBp", {"GBP": 0.8}) == pytest.approx(12.5)
+    assert market.price_in_euro(50.0, "EUR", {}) == 50.0
+    assert np.isnan(market.price_in_euro(50.0, "CHF", {}))
+
+
+def test_yahoo_live_prices_use_last_minute_in_berlin_time(monkeypatch):
+    index = pd.date_range("2026-11-06 14:30", periods=3, freq="1min", tz="UTC")
+    close = pd.DataFrame({"AAPL": [270.0, 271.0, np.nan], "EURUSD=X": [1.15, 1.16, 1.17]}, index=index)
+    calls = {}
+
+    def download(tickers, **kwargs):
+        calls.update(kwargs, tickers=tickers)
+        return pd.concat({"Close": close}, axis=1)
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    quotes = market.YahooMarketData().live_prices(["AAPL", "EURUSD=X"])
+    assert calls["interval"] == "1m" and calls["period"] == "1d"
+    assert quotes.loc["AAPL", "price"] == 271.0
+    assert quotes.loc["AAPL", "time"] == pd.Timestamp("2026-11-06 15:31")  # 14:31 UTC = 15:31 in Berlin
+    assert quotes.loc["EURUSD=X", "price"] == 1.17
+
+
+def test_demo_has_no_live_prices():
+    assert market.DemoMarketData().live_prices(["NLS.DEMO"]).empty
