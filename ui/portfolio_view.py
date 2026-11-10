@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from fractions import Fraction
 
 import pandas as pd
 import streamlit as st
@@ -11,7 +12,7 @@ from portfolio_optimizer import charts, data, performance
 from portfolio_optimizer.estimators import MEAN_ESTIMATORS
 from portfolio_optimizer.formatting import num, pct, ratio, styled
 from portfolio_optimizer.market import get_provider
-from portfolio_optimizer.portfolio import BUY, SELL, parse_date, exposures, is_concentration_group
+from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, exposures, is_concentration_group, parse_date
 from ui.common import flash, section, show_chart, show_flash
 from ui.state import (
     PortfolioContext,
@@ -24,16 +25,17 @@ from ui.state import (
     save,
     search,
     security_info,
+    set_portfolio,
 )
 
-DIMENSIONS = {"Sektoren": "sector", "Länder": "country", "Währungen": "currency"}
+DIMENSIONS = {"Sektoren": "sector", "Währungen": "currency"}
 
 
 def render(run: RunState) -> None:
     ctx = run.ctx
     show_flash()
     if ctx.portfolio.positions:
-        _kpis(ctx)
+        _hero(ctx)
     if box := section("Transaktion erfassen", "sec_add", expanded=not ctx.portfolio.securities,
                       icon=":material/add_circle:"):
         with box:
@@ -54,30 +56,41 @@ def render(run: RunState) -> None:
     if box := section("Kursdaten und Kennzahlen", "sec_market", icon=":material/query_stats:"):
         with box:
             _market_data(run)
-    if box := section("Aufteilung nach Sektoren, Ländern und Währungen", "sec_allocation",
+    if box := section("Aufteilung nach Sektoren und Währungen", "sec_allocation",
                       icon=":material/donut_small:"):
         with box:
             _allocation(ctx, run.theme)
 
 
-def _kpis(ctx: PortfolioContext) -> None:
+def _signed_eur(value: float) -> str:
+    return f"{'+' if value > 0 else '−' if value < 0 else '±'}{num(abs(value))} €"
+
+
+def _hero(ctx: PortfolioContext) -> None:
+    """Depotwert groß, darunter Gewinne, Positionen und Kursstand in einer Zeile."""
     val = ctx.valuation
+    parts = []
     known = val["cost"].notna()
-    live = bool(ctx.quotes["live"].any()) if not ctx.quotes.empty else False
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Depotwert", f"{num(ctx.value)} €",
-              help="Mit Live-Kursen (Yahoo, ca. 15 Minuten verzögert), wo verfügbar, sonst mit dem letzten "
-                   "Schlusskurs." if live else "Mit dem letzten Schlusskurs je Position.")
     if known.any():
         cost, now = float(val.loc[known, "cost"].sum()), float(val.loc[known, "value"].sum())
-        c2.metric("Unrealisierter Gewinn", f"{num(now - cost)} €", delta=pct(now / cost - 1, signed=True),
-                  help=None if known.all() else "Nur Positionen mit Kaufkurs.")
-    else:
-        c2.metric("Unrealisierter Gewinn", "–", help="Kaufkurse erfassen, um Gewinn/Verlust zu sehen.")
+        diff = now - cost
+        tone = "po-up" if diff > 0 else "po-down" if diff < 0 else ""
+        arrow = "▲ " if diff > 0 else "▼ " if diff < 0 else ""
+        parts.append(f'<span><span class="{tone}">{arrow}{_signed_eur(diff)} ({pct(now / cost - 1, signed=True)})'
+                     "</span> unrealisiert</span>")
     realized = ctx.portfolio.realized_gains()
-    c3.metric("Realisierte Gewinne", f"{num(realized)} €" if realized is not None else "–",
-              help="Aus Verkäufen nach dem FIFO-Prinzip (zuerst gekaufte Stücke gelten als zuerst verkauft).")
-    c4.metric("Positionen", str(len(ctx.portfolio.positions)))
+    if realized:
+        parts.append(f"<span>{_signed_eur(realized)} realisiert</span>")
+    n = len(ctx.portfolio.positions)
+    parts.append(f"<span>{n} {'Position' if n == 1 else 'Positionen'}</span>")
+    if not ctx.quotes.empty:
+        live = ctx.quotes[ctx.quotes["live"]]
+        common = ctx.quotes["stand"].mode().iloc[0]  # Fonds hinken oft einen Tag hinterher
+        stand = (f"Kurse live, {live['stand'].iloc[0].removeprefix('live ')} Uhr" if not live.empty
+                 else "Schlusskurse vom " + common.removeprefix("Schluss "))
+        parts.append(f"<span>{stand}</span>")
+    st.html(f'<div class="po-hero"><div class="po-label">Depotwert</div>'
+            f'<div class="po-value">{num(ctx.value)} €</div><div class="po-sub">{"".join(parts)}</div></div>')
 
 
 # ---------------------------------------------------------------------------
@@ -104,11 +117,17 @@ def _record(provider: str, symbol: str) -> None:
     save(provider)
     bump_editor()
     st.session_state["tx_query"] = ""
+    st.session_state.pop("tx_undo", None)
     flash(f"{kind} von {num(shares, 2)} Stück {info.name} am {when:%d.%m.%Y} erfasst.")
 
 
 def _use_price(value: float) -> None:
     st.session_state["tx_price"] = round(value, 2)
+
+
+def _label(info) -> str:
+    """Name und Symbol – das Symbol nur, wenn es nicht schon der Name ist (z. B. bei Fonds ohne Namen)."""
+    return info.name if info.name == info.symbol else f"{info.name} · {info.symbol}"
 
 
 def _pick_security(ctx: PortfolioContext):
@@ -120,7 +139,7 @@ def _pick_security(ctx: PortfolioContext):
                                     key="tx_mode", required=True) or "Aus dem Depot"
     if mode == "Aus dem Depot":
         symbol = st.selectbox("Wertpapier aus dem Depot", list(securities),
-                              format_func=lambda s: f"{securities[s].name} · {s}", key="tx_symbol")
+                              format_func=lambda s: _label(securities[s]), key="tx_symbol")
         return symbol, securities[symbol]
     placeholder = ("z. B. Nordlicht, Technologie, ETF" if ctx.provider == "demo"
                    else "Name, Ticker oder ISIN – z. B. Apple, SAP.DE oder IE00B4L5Y983")
@@ -142,7 +161,7 @@ def _pick_security(ctx: PortfolioContext):
     except Exception as exc:  # Netzwerkfehler
         st.error(f"Stammdaten für {symbol} nicht abrufbar: {exc}")
         return None
-    st.caption(f"{info.quote_type} · {info.sector} · {info.country} · Handelswährung {info.currency}")
+    st.caption(f"{info.quote_type} · {info.sector} · Handelswährung {info.currency}")
     return symbol, info
 
 
@@ -153,21 +172,29 @@ def _add_transaction(ctx: PortfolioContext) -> None:
     symbol, info = picked
     c1, c2, c3, c4, c5 = st.columns([1.3, 1.3, 1, 1.3, 1], vertical_alignment="bottom")
     c1.segmented_control("Typ", [BUY, SELL], default=BUY, key="tx_kind", required=True)
-    when = c2.date_input("Datum", value=date.today(), max_value=date.today(), format="DD.MM.YYYY", key="tx_date")
+    when = c2.date_input("Datum", value=date.today(), min_value=date(1970, 1, 1), max_value=date.today(),
+                         format="DD.MM.YYYY", key="tx_date")  # ohne min_value nur die letzten zehn Jahre
+    close = close_on(ctx.provider, info, when)
+    if st.session_state.get("tx_price_for") != (ctx.provider, symbol, when):
+        # Anderes Wertpapier oder Datum: Schlusskurs dieses Tages eintragen, sonst das Feld leeren
+        st.session_state["tx_price"] = round(close[0], 2) if close else 0.0
+        st.session_state["tx_price_for"] = (ctx.provider, symbol, when)
     c3.number_input("Stück", min_value=0.0, value=1.0, step=1.0, key="tx_shares")
-    c4.number_input("Kurs je Stück (EUR)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="tx_price",
-                    help="Ausführungskurs laut Abrechnung in Euro. Ohne Kurs keine Gewinn- und Renditeberechnung.")
+    c4.number_input("Kurs je Stück (EUR)", min_value=0.0, step=0.01, format="%.2f", key="tx_price",
+                    help="Vorbelegt mit dem Schlusskurs des Tages. Für genaue Gewinne den Ausführungskurs aus der "
+                         "Abrechnung eintragen.")
     c5.button("Erfassen", type="primary", on_click=_record, args=(ctx.provider, symbol), width="stretch")
     held = ctx.portfolio.get(symbol)
-    note = f"Im Depot: {num(held.shares, 2)} Stück. " if held else ""
-    close = close_on(ctx.provider, info, when)
+    parts = [f"Im Depot: {num(held.shares, 2)} Stück"] if held else []
     if close:
         value, day = close
-        left, right = st.columns([3, 1], vertical_alignment="center")
-        left.caption(f"{note}Schlusskurs am {day:%d.%m.%Y}: {num(value, 2)} €")
-        right.button("Schlusskurs übernehmen", on_click=_use_price, args=(value,), type="tertiary")
-    elif note:
-        st.caption(note)
+        parts.append(f"Schlusskurs {day:%d.%m.%Y}: {num(value, 2)} €")
+    else:
+        parts.append("Für dieses Datum liegt kein Schlusskurs vor – bitte den Kurs aus der Abrechnung eintragen")
+    left, right = st.columns([3, 1], vertical_alignment="center")
+    left.caption(" · ".join(parts))
+    if close and abs(float(st.session_state.get("tx_price") or 0) - round(close[0], 2)) > 0.004:
+        right.button("Schlusskurs einsetzen", on_click=_use_price, args=(close[0],), type="tertiary")
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +202,31 @@ def _add_transaction(ctx: PortfolioContext) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ratio_text(ratio: float) -> str:
+    """4.0 -> "4:1", 0.1 -> "1:10", 1.5 -> "3:2"."""
+    frac = Fraction(ratio).limit_denominator(1000)
+    return f"{frac.numerator}:{frac.denominator}"
+
+
+def split_note(portfolio) -> str | None:
+    splits = portfolio.applied_splits()
+    if not splits:
+        return None
+    names = ", ".join(f"{portfolio.securities[s].name if s in portfolio.securities else s} {_ratio_text(r)} "
+                      f"am {d:%d.%m.%Y}" for s, d, r in splits)
+    return (f"Aktiensplit berücksichtigt: {names}. Frühere Transaktionen zählen mit der neuen Stückzahl zum "
+            "entsprechend angepassten Kurs; erfasst bleiben sie wie in der Abrechnung.")
+
+
 def _positions(ctx: PortfolioContext) -> None:
     if ctx.missing:
-        st.warning(f"Keine Kurse für: {', '.join(ctx.missing)}. Diese Positionen fehlen in Wert und Analysen.")
+        st.warning(f"Keine Kurse für: {', '.join(ctx.missing)}. Diese Positionen fehlen in Wert und Analysen. "
+                   "Yahoo drosselt häufige Abfragen – die App fragt in zwei Minuten erneut nach.")
+    if ctx.stale:
+        names = ", ".join(f"{ctx.portfolio.securities[s].name} (Stand {d:%d.%m.%Y})" for s, d in ctx.stale.items()
+                          if s in ctx.portfolio.securities)
+        st.info(f"Yahoo hat gerade nicht für alle Werte Kurse geliefert. Verwendet werden die zuletzt gespeicherten: "
+                f"{names}. Die App fragt in zwei Minuten erneut nach.")
     val = ctx.valuation
     stand = ctx.quotes["stand"].reindex(val.index) if not ctx.quotes.empty else None
     table = pd.DataFrame({
@@ -192,25 +241,31 @@ def _positions(ctx: PortfolioContext) -> None:
         "Ø Kaufkurs": st.column_config.NumberColumn("Ø Kaufkurs €", format="euro", width=95,
                                                     help="Durchschnittlicher Einstandskurs der gehaltenen Stücke (FIFO)"),
         "Kurs": st.column_config.NumberColumn("Kurs €", format="euro", width=90),
-        "Stand": st.column_config.TextColumn(width=105, help="„live“: Yahoo-Kurs des laufenden Handelstags "
+        "Stand": st.column_config.TextColumn(width=125, help="„live“: Yahoo-Kurs des laufenden Handelstags "
                                                              "(ca. 15 Min. verzögert); sonst letzter Schlusskurs"),
         "Wert": st.column_config.NumberColumn("Wert €", format="euro", width=100),
         "G/V": st.column_config.NumberColumn("G/V €", format="euro", width=90),
         "G/V %": st.column_config.NumberColumn(format="percent", width=70),
         "Gewicht": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="percent", width=100),
     })
+    if note := split_note(ctx.portfolio):
+        st.caption(note)
+
+
+MARK = "Auswahl"
 
 
 def _apply_tx_edits(provider: str, editor_key: str, order: list[int]) -> None:
+    """Änderungen aus der Tabelle übernehmen; die Auswahl-Spalte markiert nur (gelöscht wird per Knopf)."""
     portfolio = current_portfolio(provider)
     state = st.session_state[editor_key]
     columns = {"Datum": "date", "Typ": "kind", "Stück": "shares", "Kurs": "price"}
-    errors, removals = [], []
+    marked = set(st.session_state.get("tx_marked", set()))
+    errors, changed = [], False
     for row, changes in state.get("edited_rows", {}).items():
         index = order[int(row)]
-        if changes.get("🗑"):
-            removals.append(index)
-            continue
+        if MARK in changes:
+            (marked.add if changes[MARK] else marked.discard)(index)
         update = {}
         for column, field_name in columns.items():
             if column not in changes:
@@ -223,50 +278,90 @@ def _apply_tx_edits(provider: str, editor_key: str, order: list[int]) -> None:
             elif field_name == "shares":
                 value = float(value or 0)
             update[field_name] = value
+        if not update:
+            continue
         try:
             portfolio.update_transaction(index, **update)
+            changed = True
         except ValueError as exc:
             errors.append(str(exc))
-    for index in sorted(removals, reverse=True):
-        try:
-            portfolio.remove_transaction(index)
-        except ValueError as exc:
-            errors.append(str(exc))
+    st.session_state["tx_marked"] = marked
+    if changed:
+        save(provider)
+        st.session_state.pop("tx_undo", None)
+    bump_editor()  # neue Tabelle mit den übernommenen Werten und Markierungen
+    if errors:
+        flash(" ".join(errors), "error")
+    elif changed:
+        flash("Transaktion geändert.")
+
+
+def _delete_marked(provider: str) -> None:
+    portfolio = current_portfolio(provider)
+    marked = sorted(st.session_state.get("tx_marked", set()))
+    snapshot = portfolio.to_dict()
+    errors = portfolio.remove_transactions(marked)
+    if errors:
+        flash("Nicht gelöscht: " + " ".join(errors), "error")
+        return
     save(provider)
+    st.session_state["tx_marked"] = set()
+    st.session_state["tx_undo"] = {"provider": provider, "name": portfolio.name, "data": snapshot,
+                                   "count": len(marked)}
     bump_editor()
-    flash(" ".join(errors) if errors else "Transaktionen aktualisiert.", "error" if errors else "success")
+    flash(f"{len(marked)} Transaktion(en) gelöscht.")
+
+
+def _clear_marks() -> None:
+    st.session_state["tx_marked"] = set()
+    bump_editor()
+
+
+def _undo_delete(provider: str) -> None:
+    undo = st.session_state.pop("tx_undo", None)
+    if undo and undo["provider"] == provider:
+        set_portfolio(provider, Portfolio.from_dict(undo["data"]))
+        flash("Löschen rückgängig gemacht.")
 
 
 def _transactions(ctx: PortfolioContext) -> None:
     portfolio = ctx.portfolio
     order = sorted(range(len(portfolio.transactions)),
                    key=lambda i: (portfolio.transactions[i].date or date.min), reverse=True)
+    marked = st.session_state.get("tx_marked", set())
     rows = []
     for i in order:
         t = portfolio.transactions[i]
         info = portfolio.securities.get(t.symbol)
-        rows.append({"🗑": False, "Datum": t.date, "Typ": t.kind, "Wertpapier": info.name if info else t.symbol,
-                     "Symbol": t.symbol, "Stück": t.shares, "Kurs": t.price, "Betrag": t.amount})
+        rows.append({MARK: i in marked, "Datum": t.date, "Typ": t.kind, "Wertpapier": info.name if info else t.symbol,
+                     "Stück": t.shares, "Kurs": t.price, "Betrag": t.amount})
     key = f"tx_editor_{st.session_state.get('tx_editor_version', 0)}"
     st.data_editor(
         pd.DataFrame(rows), key=key, hide_index=True, on_change=_apply_tx_edits, args=(ctx.provider, key, order),
-        disabled=["Wertpapier", "Symbol", "Betrag"],
+        disabled=["Wertpapier", "Betrag"],
         column_config={
-            "🗑": st.column_config.CheckboxColumn(help="Transaktion löschen", width=40),
+            MARK: st.column_config.CheckboxColumn("", help="Zum Löschen markieren", width=40),
             "Datum": st.column_config.DateColumn(format="DD.MM.YYYY", width=105),
             "Typ": st.column_config.SelectboxColumn(options=[BUY, SELL], required=True, width=90),
-            "Wertpapier": st.column_config.TextColumn(width=200),
-            "Symbol": st.column_config.TextColumn(width=90),
+            "Wertpapier": st.column_config.TextColumn(width=260),
             "Stück": st.column_config.NumberColumn(min_value=0.0, format="localized", width=80),
             "Kurs": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="euro", width=95),
             "Betrag": st.column_config.NumberColumn("Betrag €", format="euro", width=110),
         },
     )
+    if marked:
+        left, right, _ = st.columns([1.6, 1.4, 3], vertical_alignment="center")
+        left.button(f"{len(marked)} markierte löschen", type="primary", icon=":material/delete:",
+                    on_click=_delete_marked, args=(ctx.provider,))
+        right.button("Markierung aufheben", type="tertiary", on_click=_clear_marks)
+    undo = st.session_state.get("tx_undo")
+    if undo and undo["provider"] == ctx.provider and undo["name"] == portfolio.name:
+        st.button(f"Löschen rückgängig machen ({undo['count']})", type="tertiary", icon=":material/undo:",
+                  on_click=_undo_delete, args=(ctx.provider,))
     undated = sum(1 for t in portfolio.transactions if t.date is None)
-    st.caption("Datum, Typ, Stück und Kurs lassen sich direkt ändern; 🗑 löscht eine Transaktion. Verkäufe können "
-               "den Bestand nicht übersteigen."
-               + (f" {undated} Transaktion(en) ohne Datum – bitte ergänzen, damit sie in die Wertentwicklung "
-                  "eingehen." if undated else ""))
+    st.caption("Werte direkt in der Tabelle ändern; zum Löschen Zeilen markieren."
+               + (f" {undated} ohne Datum – bitte ergänzen, sonst fehlen sie in der Wertentwicklung." if undated
+                  else ""))
 
 
 # ---------------------------------------------------------------------------
@@ -293,9 +388,11 @@ def _performance(ctx: PortfolioContext, theme) -> None:
     st.markdown("**Depotwert und Einzahlungen**")
     show_chart(charts.value_chart(perf.value, perf.invested, theme))
 
-    st.markdown("**Vergleich mit einem Index**")
+    st.markdown("**Vergleich mit einem Index**", help="Beide Linien starten beim ersten Kauf mit 100 und zeigen die "
+                "zeitgewichtete Kursentwicklung; ausgeschüttete Dividenden sind in beiden nicht enthalten.")
     markets = {i.symbol: i for i in get_provider(ctx.provider).instruments if i.kind == "market"}
-    bench = st.selectbox("Index", list(markets), format_func=lambda s: markets[s].label, key="perf_bench")
+    bench = st.selectbox("Index", list(markets), format_func=lambda s: markets[s].label, key="perf_bench",
+                         label_visibility="collapsed", width=320)
     try:
         series = prices_eur(ctx.provider, (bench,), (markets[bench].currency,), perf.value.index[0].date(), ctx.end,
                             adjusted=False)
@@ -306,23 +403,18 @@ def _performance(ctx: PortfolioContext, theme) -> None:
         indexed, same_flows = performance.benchmark(perf, series[bench])
         show_chart(charts.benchmark_chart(perf.twr, indexed, markets[bench].label, theme))
         diff = perf.value.iloc[-1] - same_flows
-        st.caption(
-            f"Beide Linien starten beim ersten Kauf mit 100 und zeigen die zeitgewichtete Kursentwicklung "
-            f"(ausgeschüttete Dividenden sind in beiden nicht enthalten). "
-            f"Mit denselben Ein- und Auszahlungen zu denselben Terminen wäre im {markets[bench].label} heute "
-            f"**{num(same_flows)} €** angelegt – dein Depot liegt mit {num(perf.value.iloc[-1])} € "
-            f"{'darüber' if diff >= 0 else 'darunter'} ({num(abs(diff))} €)."
-        )
+        st.caption(f"Dieselben Ein- und Auszahlungen im {markets[bench].label} wären heute {num(same_flows)} € wert – "
+                   f"dein Depot liegt {num(abs(diff))} € {'darüber' if diff >= 0 else 'darunter'}.")
 
-    st.markdown("**Entwicklung je Position**")
+    st.markdown("**Entwicklung je Position**", help="Gewinn oder Verlust seit dem ersten Kauf: aktueller Wert minus "
+                "Einzahlungen plus Verkaufserlöse, also realisiert und unrealisiert.")
     labels = ctx.labels
     pnl = perf.position_pnl.rename(columns=labels)
     order = list(perf.position_value.iloc[-1].sort_values(ascending=False).rename(index=labels).index)
-    chosen = st.multiselect("Positionen", order, default=order[:8], key="perf_positions")
+    chosen = st.multiselect("Positionen", order, default=order[:8], key="perf_positions",
+                            label_visibility="collapsed")
     if chosen:
         show_chart(charts.position_pnl_chart(pnl[chosen], theme))
-        st.caption("Gewinn/Verlust je Position seit dem ersten Kauf: aktueller Wert minus eingezahlte Beträge plus "
-                   "Verkaufserlöse, also realisiert und unrealisiert.")
 
 
 # ---------------------------------------------------------------------------
@@ -335,9 +427,8 @@ def _market_data(run: RunState) -> None:
         st.info("Kursdaten und Kennzahlen brauchen mindestens zwei Positionen mit gemeinsamer Kurshistorie.")
         return
     prices, est, theme = run.prices, run.est, run.theme
-    st.caption(f"Analysezeitraum {prices.index[0]:%d.%m.%Y} – {prices.index[-1]:%d.%m.%Y} "
-               f"({num(est.years, 1)} Jahre), dividendenbereinigte Kurse in Euro. Zeitraum unter **Einstellungen** "
-               "wählbar.")
+    st.caption(f"{prices.index[0]:%d.%m.%Y} – {prices.index[-1]:%d.%m.%Y}, dividendenbereinigt in Euro. Zeitraum "
+               "unter Einstellungen.")
     show_chart(charts.price_chart(prices, theme))
     table = pd.DataFrame({
         "Erwartete Rendite p. a.": est.mu,
@@ -348,9 +439,8 @@ def _market_data(run: RunState) -> None:
     }, index=est.assets)
     st.dataframe(styled(table, pct_cols=("Erwartete Rendite p. a.", "CAGR", "Volatilität p. a.", "Max. Drawdown"),
                         ratio_cols=("Sharpe-Ratio",)))
-    st.caption("Erwartete Rendite: annualisierter Mittelwert der Tagesrenditen "
-               f"({MEAN_ESTIMATORS[est.mean_method]}) – diese Größe nutzt die Optimierung. "
-               "CAGR: tatsächliche jährliche Wachstumsrate im Zeitraum.")
+    st.caption(f"Erwartete Rendite: {MEAN_ESTIMATORS[est.mean_method]} der Tagesrenditen, annualisiert – mit "
+               "dieser Größe rechnet die Optimierung. CAGR: tatsächliches Wachstum p. a.")
     st.markdown("**Korrelationen**")
     corr = pd.DataFrame(est.corr, index=est.assets, columns=est.assets)
     show_chart(charts.correlation_heatmap(corr, theme))
@@ -373,13 +463,10 @@ def _allocation(ctx: PortfolioContext, theme) -> None:
         show_chart(charts.exposure_chart(shares, theme, limits.for_kind(by), limited))
     with right:
         table = pd.DataFrame({"Anteil": shares, "Wert (EUR)": shares * ctx.value})
-        table.index.name = {"sector": "Sektor", "country": "Land", "currency": "Währung"}[by]
+        table.index.name = {"sector": "Sektor", "currency": "Währung"}[by]
         st.dataframe(styled(table, pct_cols=("Anteil",), num_cols=("Wert (EUR)",)))
     notes = {
-        "sector": "ETFs und Fonds werden über ihre Sektorgewichte aufgeteilt (Durchschau), soweit Yahoo diese "
-                  "liefert. Anleihen, Geldmarkt und Rohstoffe erscheinen als eigene Gruppen.",
-        "country": "Für Fonds liefert Yahoo keine Länderaufteilung; sie erscheinen als „Mehrere Länder (Fonds)“.",
-        "currency": "Maßgeblich ist die Handelswährung. Ein in Euro gehandelter Welt-ETF enthält wirtschaftlich "
-                    "trotzdem Dollar-Risiko.",
+        "sector": "ETFs zählen mit ihren Sektorgewichten, soweit Yahoo sie liefert.",
+        "currency": "Maßgeblich ist die Handelswährung – ein Welt-ETF in Euro enthält trotzdem Dollar-Risiko.",
     }
-    st.caption(notes[by] + " Die gestrichelte Linie zeigt die Grenze aus **Analysen → Klumpenrisiko**.")
+    st.caption(notes[by] + " Gestrichelt: Grenze aus dem Klumpenrisiko.")

@@ -69,7 +69,7 @@ def _trade_day(index: pd.DatetimeIndex, when: date) -> pd.Timestamp:
 
 def compute(portfolio: Portfolio, prices: pd.DataFrame) -> Performance | None:
     """Wertentwicklung aus Transaktionen und Tageskursen in Euro (Spalten = Symbole)."""
-    usable = [t for t in portfolio.transactions
+    usable = [t for t in portfolio.effective_transactions()  # splitbereinigt, passend zu den Kursreihen
               if t.date and t.price and t.symbol in prices.columns and prices[t.symbol].notna().any()]
     if not usable:
         return None

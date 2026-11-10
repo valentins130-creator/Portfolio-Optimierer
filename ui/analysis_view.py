@@ -35,10 +35,10 @@ def render(run: RunState) -> None:
     if box := section("Markowitz – Efficient Frontier", "sec_frontier", icon=":material/stacked_line_chart:"):
         with box:
             frontier(run)
-    if box := section("Monte Carlo", "sec_mc", icon=":material/casino:"):
+    if box := section("Monte Carlo", "sec_mc", icon=":material/ssid_chart:"):
         with box:
             monte_carlo(run)
-    if box := section("Schätzfehler", "sec_error", icon=":material/error_med:"):
+    if box := section("Schätzfehler", "sec_error", icon=":material/troubleshoot:"):
         with box:
             estimation_error(run)
 
@@ -53,7 +53,6 @@ def _limits_popover() -> conc.Limits:
     with st.popover("Grenzen anpassen", icon=":material/tune:"):
         position = st.slider("Einzelaktie", 2, 50, int(d.position * 100), 1, format="%d %%", key="lim_position")
         sector = st.slider("Sektor", 10, 80, int(d.sector * 100), 5, format="%d %%", key="lim_sector")
-        country = st.slider("Land", 20, 100, int(d.country * 100), 5, format="%d %%", key="lim_country")
         currency = st.slider("Fremdwährung (je Währung)", 10, 100, int(d.currency * 100), 5, format="%d %%",
                              key="lim_currency")
         cluster = st.slider("Korrelations-Cluster", 10, 100, int(d.cluster * 100), 5, format="%d %%",
@@ -62,7 +61,8 @@ def _limits_popover() -> conc.Limits:
                          help="Einzelwerte, die im Mittel mindestens so stark korrelieren, bilden einen Cluster.")
         st.caption("Fonds und ETFs zählen nicht als Einzelaktie, weil sie selbst breit gestreut sind. Euro, "
                    "Anleihen und Geldmarkt sind von den Grenzen ausgenommen.")
-    limits = conc.Limits(position / 100, sector / 100, country / 100, currency / 100, cluster / 100, corr)
+    limits = conc.Limits(position=position / 100, sector=sector / 100, currency=currency / 100,
+                         cluster=cluster / 100, correlation=corr)
     st.session_state["pf_limits"] = limits
     return limits
 
@@ -81,21 +81,21 @@ def concentration(ctx: PortfolioContext, theme) -> conc.ConcentrationReport:
                    "gleichen sich die Positionen gegenseitig aus (1 = keine Streuungswirkung).")
     if report.exceeded:
         st.markdown("**Über den Grenzen**")
-        for f in report.exceeded:
-            st.markdown(f"- 🔴 **{conc.KINDS[f.kind]} {f.group}**: {pct(f.weight)} des Depots "
-                        f"(Grenze {pct(f.limit, 0)}), verursacht {pct(f.risk_share)} der Schwankung")
-        st.caption("Lösungen dazu unter **Lösungen → Umschichtung** und **Lösungen → Absicherung**.")
+        st.markdown("  \n".join(
+            f":red-badge[{conc.KINDS[f.kind]}] **{f.group}** – {pct(f.weight)} des Depots, Grenze {pct(f.limit, 0)}, "
+            f"{pct(f.risk_share)} der Schwankung" for f in report.exceeded))
+        st.caption("Vorschläge dazu unter Lösungen.")
     else:
         st.success("Keine Konzentration über den Grenzen.")
     near = [f for f in report.findings if f.status == "nahe Grenze"]
     if near:
         st.caption("Nahe an der Grenze: " + ", ".join(f"{f.group} ({pct(f.weight)})" for f in near))
-    st.markdown("**Gewicht und Risikoanteil je Position**")
+    st.markdown("**Gewicht und Risikoanteil je Position**", help="Der Risikoanteil ist der Teil der "
+                "Depotschwankung, der auf eine Position entfällt. Liegt er deutlich über dem Gewicht, ist die "
+                "Position volatil oder läuft stark mit dem Rest des Depots.")
     order = ctx.weights.sort_values(ascending=False).index
     show_chart(charts.weight_risk_chart([ctx.labels[s] for s in order], ctx.weights[order].to_numpy(),
                                         report.risk_shares.reindex(order).to_numpy(), theme))
-    st.caption("Der Risikoanteil zeigt, welcher Teil der Depotschwankung auf eine Position entfällt. Liegt er "
-               "deutlich über dem Gewicht, ist die Position volatil oder läuft stark mit dem Rest des Depots.")
     if st.toggle("Alle Konzentrationen als Tabelle", key="cluster_table"):
         rows = [{"Art": conc.KINDS[f.kind], "Gruppe": f.group, "Gewicht": f.weight, "Risikoanteil": f.risk_share,
                  "Grenze": f.limit, "Status": f.status} for f in report.findings]
@@ -170,8 +170,8 @@ def frontier(run: RunState) -> None:
     diff = sharpe_t - sharpe_o
     c3.metric("Sharpe-Ratio", ratio(sharpe_t), **delta(diff, ("+" if diff > 0 else "") + ratio(diff) + " ggü. Depot",
                                                        tol=0.005))
-    st.caption(f"Kennzahlen des Portfolios **{TARGET}** im Vergleich zu deinem Depot (Rendite {pct(ret_o)}, "
-               f"Volatilität {pct(vol_o)}). Alles beruht auf geschätzten Renditen – siehe **Schätzfehler**.")
+    st.caption(f"{TARGET} gegenüber deinem Depot (Rendite {pct(ret_o)}, Volatilität {pct(vol_o)}) – auf Basis "
+               "geschätzter Renditen, siehe Schätzfehler.")
 
     named = {OWN: own, TARGET: w_target, "Max-Sharpe": w_ms, "Minimum-Varianz": w_gmv}
     named = {k: v for k, v in named.items() if v is not None}
@@ -179,20 +179,18 @@ def frontier(run: RunState) -> None:
     cloud = opt.random_portfolios(est.mu, est.cov, 3000, seed=1, bounds=bounds)
     show_chart(charts.frontier_chart(curve, est.assets, est.vol, est.mu, points, theme,
                                      rf=rf if w_ms is not None else None, cloud=cloud))
-    st.caption("Grau: zufällig gemischte Portfolios ohne Leerverkäufe. Gestrichelt: Kapitalmarktlinie vom "
-               "risikolosen Zins durch das Max-Sharpe-Portfolio."
-               + ("" if charts.labels_fit(est.assets) else " Namen der Einzelwerte erscheinen beim Überfahren."))
+    st.caption("Grau: zufällige Mischungen. Gestrichelt: Kapitalmarktlinie durch das Max-Sharpe-Portfolio."
+               + ("" if charts.labels_fit(est.assets) else " Namen der Einzelwerte beim Überfahren."))
 
     left, right = st.columns(2)
     with left:
         st.markdown("**Gewichte je Portfolio**")
         show_chart(charts.weights_chart(pd.DataFrame(named, index=est.assets), theme))
     with right:
-        st.markdown("**Zusammensetzung der effizienten Portfolios je Risikoniveau**")
+        st.markdown("**Zusammensetzung der effizienten Portfolios je Risikoniveau**", help="Jeder senkrechte "
+                    "Schnitt ist ein effizientes Portfolio; die Flächen zeigen seine Gewichte (zusammen 100 %). "
+                    "Nach rechts steigen Risiko und erwartete Rendite. Gestrichelt: das gewählte Zielrisiko.")
         show_chart(charts.transition_chart(curve, est.assets, theme, marker=target_vol))
-        st.caption("Jeder senkrechte Schnitt ist ein effizientes Portfolio: Die Flächen zeigen seine Gewichte "
-                   "(zusammen 100 %). Nach rechts steigen Risiko und erwartete Rendite; man sieht, welche Anlagen "
-                   "hinzukommen oder verschwinden. Die gestrichelte Linie markiert das gewählte Zielrisiko.")
 
     if st.toggle("Gewichte und Kennzahlen als Tabelle", key="frontier_table"):
         all_named = named | {"Gleichgewichtet (1/N)": np.full(len(est.assets), 1 / len(est.assets))}
@@ -275,10 +273,10 @@ def monte_carlo(run: RunState) -> None:
         st.dataframe(styled(q, num_cols=tuple(q.columns)))
         st.caption(f"Maximaler Drawdown: Median {pct(s['max_dd_median'])}, in 5 % der Pfade über "
                    f"{pct(s['max_dd_p95'])} (auf Monatsbasis).")
-    st.info("Die Simulation behandelt die geschätzten Renditen und Risiken als bekannt. Gerade die erwarteten "
-            "Renditen sind aber sehr unsicher – wie stark, zeigt **Schätzfehler**." if method == "gbm" else
-            "Das Bootstrap wiederholt die Vergangenheit in zufälliger Reihenfolge: Die historische "
-            "Durchschnittsrendite (samt Schätzfehler) steckt damit in jedem Pfad – mehr unter **Schätzfehler**.")
+    st.caption("Die Simulation behandelt die geschätzten Renditen als bekannt – wie unsicher sie sind, zeigt "
+               "Schätzfehler." if method == "gbm" else
+               "Das Bootstrap wiederholt die Vergangenheit in zufälliger Reihenfolge; ihre Durchschnittsrendite "
+               "steckt in jedem Pfad – siehe Schätzfehler.")
 
 
 # ---------------------------------------------------------------------------

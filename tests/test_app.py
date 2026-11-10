@@ -45,6 +45,11 @@ def _open(at, page, sections=None):
     return at.run()
 
 
+def _hero(at) -> str:
+    """HTML der Depotwert-Zeile oben auf der Portfolio-Seite."""
+    return next((e.proto.body for e in at.html if "po-hero" in e.proto.body and "<style>" not in e.proto.body), "")
+
+
 def _saved(tmp_path, name="mein-depot", provider="demo"):
     folder = tmp_path / "demo" if provider == "demo" else tmp_path
     return json.loads((folder / f"{name}.json").read_text(encoding="utf-8"))
@@ -86,7 +91,7 @@ def test_record_buy_and_sell_with_dates(demo_app, tmp_path):
     at = demo_app
     bought = date.today() - timedelta(days=400)
     at.text_input(key="tx_query").set_value("Nordlicht").run()
-    at.date_input(key="tx_date").set_value(bought)
+    at.date_input(key="tx_date").set_value(bought).run()
     at.number_input(key="tx_shares").set_value(12.0)
     at.number_input(key="tx_price").set_value(100.0)
     _button(at, "Erfassen").click().run()
@@ -99,7 +104,7 @@ def test_record_buy_and_sell_with_dates(demo_app, tmp_path):
 
     # Verkauf über den Bestand hinaus wird abgelehnt
     at.segmented_control(key="tx_kind").set_value("Verkauf")
-    at.date_input(key="tx_date").set_value(date.today() - timedelta(days=100))
+    at.date_input(key="tx_date").set_value(date.today() - timedelta(days=100)).run()
     at.number_input(key="tx_shares").set_value(20.0)
     at.number_input(key="tx_price").set_value(150.0)
     _button(at, "Erfassen").click().run()
@@ -110,16 +115,49 @@ def test_record_buy_and_sell_with_dates(demo_app, tmp_path):
     _button(at, "Erfassen").click().run()
     _assert_clean(at)
     assert len(_saved(tmp_path)["transactions"]) == 2
-    metrics = {m.label: m.value for m in at.metric}
-    assert metrics["Realisierte Gewinne"] == "100 €"  # 2 Stück × (150 − 100) €
+    assert "+100 € realisiert" in _hero(at)  # 2 Stück × (150 − 100) €
+
+
+def test_closing_price_is_filled_in_for_the_chosen_day(demo_app):
+    at = demo_app
+    at.text_input(key="tx_query").set_value("Nordlicht").run()
+    at.date_input(key="tx_date").set_value(date.today() - timedelta(days=30)).run()
+    price = at.number_input(key="tx_price").value
+    assert price > 0 and any(f"{num(price, 2)} €" in c.value for c in at.caption)
+    at.number_input(key="tx_price").set_value(1.0).run()  # eigener Kurs bleibt stehen
+    assert at.number_input(key="tx_price").value == 1.0
+    assert any(b.label == "Schlusskurs einsetzen" for b in at.button)
+    at.date_input(key="tx_date").set_value(date(1995, 1, 2)).run()  # vor den Demo-Kursen: Feld geleert
+    assert at.number_input(key="tx_price").value == 0.0
+    _assert_clean(at)
+
+
+def test_transactions_are_deleted_only_after_marking_and_can_be_restored(example_app, tmp_path):
+    at = _open(example_app, "portfolio", sections=["sec_transactions"])
+    count = len(_saved(tmp_path, "beispieldepot")["transactions"])
+    assert all("Symbol" not in d.value.columns for d in at.dataframe if "Typ" in d.value.columns)
+    at.session_state["tx_marked"] = {0, 1}  # zwei Käufe markiert (in der Tabelle per Häkchen)
+    at.run()
+    assert len(_saved(tmp_path, "beispieldepot")["transactions"]) == count  # Markieren löscht nichts
+    _button(at, "2 markierte löschen").click().run()
+    _assert_clean(at)
+    assert len(_saved(tmp_path, "beispieldepot")["transactions"]) == count - 2
+    _button(at, "Löschen rückgängig machen (2)").click().run()
+    assert len(_saved(tmp_path, "beispieldepot")["transactions"]) == count
+    at.session_state["tx_marked"] = {10, 11}  # Käufe der Brückenbank, deren Teilverkauf sie braucht
+    at.run()
+    _button(at, "2 markierte löschen").click().run()
+    assert any("übersteigt den Bestand" in t.value for t in at.toast)
+    assert len(_saved(tmp_path, "beispieldepot")["transactions"]) == count
 
 
 def test_example_portfolio_level_portfolio(example_app):
     at = _open(example_app, "portfolio")
     _assert_clean(at)
     assert [e.label for e in at.expander][:3] == ["Transaktion erfassen", "Positionen", "Transaktionen"]
+    assert "Depotwert" in _hero(at) and "10 Positionen" in _hero(at)
     labels = {m.label for m in at.metric}
-    assert {"Depotwert", "Persönliche Rendite p. a.", "Zeitgewichtete Rendite p. a.", "Eingezahlt (netto)"} <= labels
+    assert {"Persönliche Rendite p. a.", "Zeitgewichtete Rendite p. a.", "Eingezahlt (netto)"} <= labels
     assert any(m.value == "**Vergleich mit einem Index**" for m in at.markdown)
     positions = next(d.value for d in at.dataframe if "Stand" in d.value.columns)
     assert positions["Stand"].str.startswith("Schluss").all()  # die Demo hat keine Live-Kurse
@@ -128,7 +166,7 @@ def test_example_portfolio_level_portfolio(example_app):
 def test_example_portfolio_level_analyses(example_app):
     at = _open(example_app, "analysen")
     _assert_clean(at)
-    assert any("Sektor Technologie" in m.value for m in at.markdown)
+    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
     labels = {m.label for m in at.metric}
     assert {"Effektive Anzahl Positionen", "Sharpe-Ratio", "Median-Endvermögen"} <= labels
     # Voreingestellt ist das effiziente Portfolio mit dem Risiko des eigenen Depots
@@ -141,7 +179,7 @@ def test_example_portfolio_level_solutions(example_app):
     at = _open(example_app, "loesungen")
     _assert_clean(at)
     assert any("innerhalb der Grenzen" in s.value for s in at.success)
-    assert [t.label for t in at.tabs] == ["Markt-Hedge (Beta)", "Beimischung", "Klumpenrisiko absichern"]
+    assert [t.label for t in at.tabs][-3:] == ["Markt-Hedge (Beta)", "Beimischung", "Klumpenrisiko absichern"]
     assert any(m.value.startswith("Am besten erklärt") for m in at.markdown)
     assert any(m.value.startswith("**Absichern:**") for m in at.markdown)
 
@@ -192,15 +230,19 @@ def test_infeasible_weight_cap_falls_back_with_warning(example_app):
     assert any("vorerst" in w.value for w in at.warning)
 
 
-def test_create_and_delete_portfolio(demo_app, tmp_path):
+def test_deleted_portfolio_goes_to_trash_and_can_be_restored(demo_app, tmp_path):
     at = demo_app
     at.text_input(key="pf_new_name").set_value("Sparplan")
     _button(at, "Anlegen").click().run()
     assert at.selectbox(key="pf_select_demo").value == "Sparplan"
-    assert (tmp_path / "demo" / "sparplan.json").exists()
-    _button(at, "Ja, löschen").click().run()
+    saved = tmp_path / "demo" / "sparplan.json"
+    _button(at, "In den Papierkorb verschieben").click().run()
     _assert_clean(at)
-    assert not (tmp_path / "demo" / "sparplan.json").exists()
+    assert not saved.exists() and any((tmp_path / "demo" / "papierkorb").glob("sparplan--*.json"))
+    assert at.selectbox(key="pf_select_demo").value != "Sparplan"
+    _button(at, "Wiederherstellen").click().run()
+    _assert_clean(at)
+    assert saved.exists() and at.selectbox(key="pf_select_demo").value == "Sparplan"
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +257,14 @@ YAHOO = {
 }
 
 
-def _series(ticker: str, n: int) -> np.ndarray:
-    rng = np.random.default_rng(zlib.crc32(ticker.encode()))
+SPLIT_DAYS_AGO = 200  # Apple hatte in der Nachbildung vor 200 Tagen einen Split 4:1
+
+
+def _price(ticker: str, index: pd.DatetimeIndex) -> np.ndarray:
+    """Splitbereinigter Kurs je Tag – unabhängig vom angefragten Zeitraum."""
+    days = (pd.DatetimeIndex(index).tz_localize(None).normalize() - pd.Timestamp("2000-01-01")).days.to_numpy()
     level = 1.1 if ticker.endswith("=X") else 100.0
-    return level * np.exp(np.cumsum(rng.normal(0.0002, 0.01, n)))
+    return level * np.exp(0.00002 * days + 0.08 * np.sin(days / 37 + zlib.crc32(ticker.encode()) % 100))
 
 
 @pytest.fixture
@@ -234,17 +280,24 @@ def fake_yfinance(monkeypatch):
             self.info = YAHOO.get(symbol, {"quoteType": "ETF", "longName": symbol})
             self.funds_data = types.SimpleNamespace(sector_weightings={})
 
-    def download(tickers, start=None, end=None, interval="1d", auto_adjust=False, **kwargs):
+    def download(tickers, start=None, end=None, interval="1d", auto_adjust=True, actions=False, **kwargs):
         tickers = [tickers] if isinstance(tickers, str) else list(tickers)
         if interval == "1m":  # Live-Kurse: letzte Handelsminuten von heute (UTC)
             index = pd.date_range(pd.Timestamp(date.today()) + pd.Timedelta(hours=9), periods=30, freq="min",
                                   tz="UTC")
         else:
             index = pd.bdate_range(start, pd.Timestamp(end) - pd.Timedelta(days=1))
+        close = pd.DataFrame({t: _price(t, index) for t in tickers}, index=index)
         # Dividendenbereinigte Kurse liegen in der Vergangenheit unter den tatsächlichen
-        scale = {t: 0.8 if auto_adjust and not t.endswith("=X") else 1.0 for t in tickers}
-        close = pd.DataFrame({t: _series(t, len(index)) * scale[t] for t in tickers}, index=index)
-        return pd.concat({"Close": close}, axis=1)
+        adjusted = close * [1.0 if t.endswith("=X") else 0.8 for t in tickers]
+        frames = {"Close": adjusted} if auto_adjust else {"Close": close, "Adj Close": adjusted}
+        if actions:
+            splits = pd.DataFrame(0.0, index=index, columns=tickers)
+            split_day = pd.bdate_range(end=pd.Timestamp(date.today() - timedelta(days=SPLIT_DAYS_AGO)), periods=1)[0]
+            if "AAPL" in tickers and split_day in index:
+                splits.at[split_day, "AAPL"] = 4.0
+            frames["Stock Splits"] = splits
+        return pd.concat(frames, axis=1)
 
     monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=Search, Ticker=Ticker,
                                                                        download=download))
@@ -259,14 +312,19 @@ def test_yahoo_portfolio_uses_live_prices(fake_yfinance, tmp_path, monkeypatch):
         if i:
             at.segmented_control(key="tx_mode").set_value("Suchen").run()
         at.text_input(key="tx_query").set_value(query).run()
-        at.date_input(key="tx_date").set_value(date.today() - timedelta(days=500))
+        at.date_input(key="tx_date").set_value(date.today() - timedelta(days=500)).run()
         at.number_input(key="tx_shares").set_value(shares)
         at.number_input(key="tx_price").set_value(100.0)
         _button(at, "Erfassen").click().run()
         _assert_clean(at)
     assert [t["symbol"] for t in _saved(tmp_path, provider="yahoo")["transactions"]] == ["AAPL", "SAP.DE"]
-    positions = next(d.value for d in at.dataframe if "Stand" in d.value.columns)
+    positions = next(d.value for d in at.dataframe if "Stand" in d.value.columns).set_index("Symbol")
     assert positions["Stand"].str.startswith("live").all()
+    # Apple wurde vor dem Split 4:1 gekauft: 10 Stück zu 100 € werden 40 Stück zu 25 €
+    assert positions.at["AAPL", "Stück"] == pytest.approx(40.0)
+    assert positions.at["AAPL", "Ø Kaufkurs"] == pytest.approx(25.0)
+    assert positions.at["SAP.DE", "Stück"] == pytest.approx(20.0)
+    assert any("4:1" in c.value for c in at.caption)
     for page in ("analysen", "loesungen"):
         _open(at, page)
         _assert_clean(at)
@@ -281,6 +339,12 @@ def test_yahoo_suggests_actual_close_not_dividend_adjusted(fake_yfinance, tmp_pa
     at.text_input(key="tx_query").set_value("SAP").run()
     at.date_input(key="tx_date").set_value(when).run()
     _assert_clean(at)
-    index = pd.bdate_range(pd.Timestamp(when) - pd.Timedelta(days=10), pd.Timestamp(when))
-    expected = f"Schlusskurs am {index[-1]:%d.%m.%Y}: {num(_series('SAP.DE', len(index))[-1], 2)} €"
+    day = pd.bdate_range(end=pd.Timestamp(when), periods=1)
+    expected = f"Schlusskurs {day[0]:%d.%m.%Y}: {num(_price('SAP.DE', day)[0], 2)} €"
     assert any(expected in c.value for c in at.caption), [c.value for c in at.caption]
+    # Vor dem Split: Kurs in der damaligen Stückelung, wie in der Abrechnung (4 × splitbereinigter Kurs)
+    at.segmented_control(key="tx_mode").set_value("Suchen") if any(
+        w.key == "tx_mode" for w in at.segmented_control) else None
+    at.text_input(key="tx_query").set_value("Apple").run()
+    usd = _price("AAPL", day)[0] / _price("EURUSD=X", day)[0]
+    assert at.number_input(key="tx_price").value == pytest.approx(round(4 * usd, 2))

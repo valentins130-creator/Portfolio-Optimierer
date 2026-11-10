@@ -42,6 +42,31 @@ def test_planned_sale_gain_uses_oldest_lots_first():
     assert sale_gain([Transaction("X", BUY, 3, None)], 1, 10.0) is None  # ohne Kaufkurs kein Gewinn
 
 
+def test_stock_split_turns_earlier_purchases_into_more_shares_at_lower_price():
+    pf = Portfolio("Test")
+    pf.add_transaction(A, BUY, 10, 400.0, date(2024, 1, 2))  # vor dem Split, wie in der Abrechnung
+    pf.splits = {"A": [(date(2024, 6, 10), 4.0)]}
+    pf.add_transaction(A, SELL, 30, 120.0, date(2024, 9, 2))  # nach dem Split: 40 Stück vorhanden
+    a = pf.get("A")
+    assert a.shares == pytest.approx(10) and a.purchase_price == pytest.approx(100.0)
+    assert pf.realized_gains() == pytest.approx(30 * (120 - 100))
+    assert pf.applied_splits() == [("A", date(2024, 6, 10), 4.0)]
+    assert pf.transactions[0].shares == 10  # gespeichert bleibt die Abrechnung
+    pf.splits = {}
+    with pytest.raises(ValueError, match="übersteigt den Bestand"):  # ohne Split wäre der Verkauf ungedeckt
+        pf._check("A")
+
+
+def test_performance_has_no_jump_at_a_split():
+    index = pd.bdate_range("2024-01-02", periods=60)
+    prices = pd.DataFrame({"A": np.full(60, 100.0)}, index=index)  # splitbereinigt flach
+    pf = Portfolio("Test", splits={"A": [(index[30].date(), 4.0)]})
+    pf.add_transaction(A, BUY, 10, 400.0, index[0].date())
+    perf = compute(pf, prices)
+    assert perf.value.iloc[0] == pytest.approx(4000) and perf.value.iloc[-1] == pytest.approx(4000)
+    assert perf.twr.iloc[-1] == pytest.approx(100.0)
+
+
 def test_sells_cannot_exceed_holdings():
     pf = _portfolio()
     with pytest.raises(ValueError, match="übersteigt den Bestand"):

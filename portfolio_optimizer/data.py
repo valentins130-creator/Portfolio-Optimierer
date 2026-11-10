@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 
 import numpy as np
@@ -56,17 +57,21 @@ def parse_tickers(text: str) -> list[str]:
     return list(seen)
 
 
-def _extract_close(raw: pd.DataFrame, tickers: Sequence[str]) -> pd.DataFrame:
-    """Holt die Schlusskurse aus dem Ergebnis von ``yfinance.download``."""
+def _extract_close(raw: pd.DataFrame, tickers: Sequence[str], field: str = "Close") -> pd.DataFrame:
+    """Holt ein Feld (Standard: Schlusskurse) je Ticker aus dem Ergebnis von ``yfinance.download``."""
     if raw is None or raw.empty:
         return pd.DataFrame()
     if isinstance(raw.columns, pd.MultiIndex):
-        if "Close" in raw.columns.get_level_values(0):
-            close = raw["Close"]
-        else:  # group_by="ticker": (Ticker, Feld)
-            close = raw.xs("Close", axis=1, level=1)
+        if field in raw.columns.get_level_values(0):
+            close = raw[field]
+        elif field in raw.columns.get_level_values(1):  # group_by="ticker": (Ticker, Feld)
+            close = raw.xs(field, axis=1, level=1)
+        else:
+            return pd.DataFrame()
+    elif field in raw.columns:
+        close = raw[[field]].rename(columns={field: tickers[0]})
     else:
-        close = raw[["Close"]].rename(columns={"Close": tickers[0]})
+        return pd.DataFrame()
     close = close.copy()
     close.columns = [str(c) for c in close.columns]
     close.index = pd.DatetimeIndex(close.index)
@@ -98,6 +103,80 @@ def fetch_prices(
     close = _extract_close(raw, tickers)
     missing = [t for t in tickers if t not in close.columns or close[t].dropna().empty]
     return close.drop(columns=[t for t in missing if t in close.columns]), missing
+
+
+RETRY_DELAY = 1.5  # Sekunden vor dem zweiten Versuch für fehlende Ticker
+
+
+@dataclass(frozen=True)
+class History:
+    """Tageskurse je Ticker in Handelswährung.
+
+    ``close``: tatsächliche Schlusskurse (von Yahoo nur um Splits bereinigt) für die Bewertung,
+    ``adj_close``: zusätzlich dividendenbereinigt für Renditen und Risiko,
+    ``splits``: Split-Verhältnis am Ex-Tag (4 bei 4:1, 0,1 bei 1:10), sonst 0 oder leer,
+    ``missing``: Ticker ohne Kurse.
+    """
+
+    close: pd.DataFrame
+    adj_close: pd.DataFrame
+    splits: pd.DataFrame
+    missing: list[str]
+
+
+def _download_history(tickers: list[str], start: date, end: date, threads: bool) -> History:
+    import yfinance as yf
+
+    raw = yf.download(
+        tickers,
+        start=pd.Timestamp(start),
+        end=pd.Timestamp(end) + pd.Timedelta(days=1),  # Enddatum ist bei yfinance exklusiv
+        auto_adjust=False,
+        actions=True,
+        progress=False,
+        threads=threads,
+    )
+    close = _extract_close(raw, tickers, "Close")
+    adj = _extract_close(raw, tickers, "Adj Close")
+    splits = _extract_close(raw, tickers, "Stock Splits")
+    have = [t for t in tickers if t in close.columns and close[t].notna().any()]
+    adj = adj.reindex(columns=have)
+    adj = adj.fillna(close[have]) if have else adj  # Devisen u. Ä. haben keine eigene bereinigte Reihe
+    return History(close[have], adj, splits.reindex(columns=have), [t for t in tickers if t not in have])
+
+
+def fetch_history(tickers: Sequence[str], start: date, end: date) -> History:
+    """Lädt tatsächliche und bereinigte Schlusskurse sowie Splits in einem Abruf.
+
+    Yahoo drosselt häufige Abfragen („Too Many Requests“); yfinance liefert dann für einzelne
+    Ticker nichts. Diese werden nach einer kurzen Pause einmal einzeln nachgeladen.
+    """
+    import time
+
+    tickers = list(dict.fromkeys(tickers))
+    hist = _download_history(tickers, start, end, threads=True)
+    if hist.missing:
+        time.sleep(RETRY_DELAY)
+        again = _download_history(hist.missing, start, end, threads=False)
+        if not again.close.empty:
+            hist = History(
+                pd.concat([hist.close, again.close], axis=1),
+                pd.concat([hist.adj_close, again.adj_close], axis=1),
+                pd.concat([hist.splits, again.splits], axis=1),
+                again.missing,
+            )
+    return hist
+
+
+def split_events(splits: pd.DataFrame) -> dict[str, list[tuple[date, float]]]:
+    """Splits je Ticker als (Ex-Tag, Verhältnis); Tage ohne Split (0, 1 oder leer) entfallen."""
+    events: dict[str, list[tuple[date, float]]] = {}
+    for ticker in splits.columns:
+        col = pd.to_numeric(splits[ticker], errors="coerce")
+        hits = col[(col > 0) & (col != 1)].dropna()
+        if not hits.empty:
+            events[str(ticker)] = [(ts.date(), float(r)) for ts, r in hits.items()]
+    return events
 
 
 def _parse_dates(values: pd.Series) -> pd.DatetimeIndex:

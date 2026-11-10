@@ -31,9 +31,9 @@ def render(run: RunState) -> None:
         return
     report = conc.analyze(ctx.weights, ctx.infos, ctx.weekly, current_limits())
     if report.exceeded:
-        st.caption("Über den Grenzen: " + ", ".join(f"{conc.KINDS[f.kind]} {f.group} ({pct(f.weight)})"
-                                                     for f in report.exceeded)
-                   + " – Grenzen unter **Analysen → Klumpenrisiko** anpassbar.")
+        n = len(report.exceeded)
+        st.caption(f"{n} {'Konzentration' if n == 1 else 'Konzentrationen'} über den Grenzen – Details und Grenzen "
+                   "unter Analysen → Klumpenrisiko.")
     if box := section("Umschichtung", "sec_rebalance", expanded=True, icon=":material/swap_horiz:"):
         with box:
             rebalancing(run, report)
@@ -162,9 +162,9 @@ def rebalancing(run: RunState, report: conc.ConcentrationReport) -> None:
         else:
             st.success("Nach der Umschichtung liegen alle Konzentrationen innerhalb der Grenzen.")
     else:
-        st.caption("Ziele aus der Optimierung beruhen auf geschätzten Renditen und Risiken (Einstellungen oben "
-                   "rechts) – wie unsicher diese sind, zeigt **Analysen → Schätzfehler**.")
-    st.caption("Transaktionskosten und Steuern sind nicht berücksichtigt. Keine Anlageberatung.")
+        st.caption("Optimierte Ziele beruhen auf geschätzten Renditen – wie unsicher die sind, zeigt Analysen → "
+                   "Schätzfehler.")
+    st.caption("Ohne Transaktionskosten und Steuern. Keine Anlageberatung.")
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +205,8 @@ def hedges(ctx: PortfolioContext, report: conc.ConcentrationReport, theme) -> No
             } for h in items])
             st.dataframe(styled(table, pct_cols=("Volatilität danach", "Max. Rückgang danach", "Rendite p. a. danach"),
                                 ratio_cols=("Beta", "R²"), num_cols=("Short-Betrag (EUR)",)), hide_index=True)
-            st.caption("Umsetzung über Index-Futures, Short-ETFs oder Put-Optionen. Mit dem Marktrisiko sichert man "
-                       "auch die erwartete Marktrendite ab. Rendite danach: historisch, ohne Kosten und Zinsen.")
+            st.caption("Umsetzung über Index-Futures, Short-ETFs oder Puts; mit dem Risiko sichert man auch die "
+                       "Marktrendite ab. Werte historisch, ohne Kosten.")
         else:
             st.info("Für die Marktindizes liegen keine ausreichenden Kurse vor.")
 
@@ -239,7 +239,8 @@ def hedges(ctx: PortfolioContext, report: conc.ConcentrationReport, theme) -> No
         for item in items:
             f = item.finding
             with st.container(border=True):
-                st.markdown(f"**{conc.KINDS[f.kind]} {f.group}**: {pct(f.weight)} des Depots, Grenze {pct(f.limit, 0)}")
+                st.markdown(f":red-badge[{conc.KINDS[f.kind]}] **{f.group}** – {pct(f.weight)} des Depots, Grenze "
+                            f"{pct(f.limit, 0)}")
                 left, right = st.columns(2)
                 left.markdown(f"**Reduzieren:** {num(item.reduce_amount)} € verkaufen und breiter anlegen "
                               "(siehe **Umschichtung**).")
@@ -254,5 +255,5 @@ def hedges(ctx: PortfolioContext, report: conc.ConcentrationReport, theme) -> No
                     right.markdown(f"**Absichern:** Short {num(item.notional)} € **{item.instrument.label}** "
                                    f"(Beta {ratio(item.beta)}, R² {ratio(item.r2)}). Depot-Volatilität "
                                    f"{pct(item.vol_before)} → **{pct(item.vol_after)}**.")
-        st.caption("Abgesichert wird jeweils nur der Teil über der Grenze. Alle Kennzahlen beruhen auf historischen "
-                   "Wochenrenditen in Euro und sind keine Anlageberatung.")
+        st.caption("Abgesichert wird nur der Teil über der Grenze. Historische Wochenrenditen in Euro; keine "
+                   "Anlageberatung.")

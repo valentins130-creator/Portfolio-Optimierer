@@ -20,7 +20,7 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 
-from .data import fetch_prices
+from .data import History, fetch_history, fetch_prices
 from .estimators import TRADING_DAYS
 
 BASE_CURRENCY = "EUR"
@@ -29,6 +29,10 @@ FUND_COUNTRY = "Mehrere Länder (Fonds)"
 DIVERSIFIED = "Diversifiziert"
 
 FUND_TYPES = {"ETF", "Fonds"}
+class MarketDataError(RuntimeError):
+    """Die Datenquelle hat keine oder unvollständige Daten geliefert."""
+
+
 HOLDABLE_TYPES = {"EQUITY": "Aktie", "ETF": "ETF", "MUTUALFUND": "Fonds", "CRYPTOCURRENCY": "Krypto"}
 
 # Untereinheiten: Kurs in Pence o. Ä. -> (Hauptwährung, Teiler)
@@ -134,7 +138,7 @@ class SearchHit:
 
     @property
     def label(self) -> str:
-        parts = [self.name, self.symbol, self.exchange, self.quote_type]
+        parts = [self.name, self.symbol if self.symbol != self.name else "", self.exchange, self.quote_type]
         return " · ".join(p for p in parts if p)
 
 
@@ -288,11 +292,26 @@ class YahooMarketData:
         return hits
 
     def info(self, symbol: str) -> SecurityInfo:
+        """Stammdaten. Liefert Yahoo nichts Brauchbares (etwa weil es Abfragen drosselt), gibt es einen
+        Fehler statt geratener Werte – sonst würden falsche Währung oder Art dauerhaft gespeichert."""
         import yfinance as yf
 
         ticker = yf.Ticker(symbol)
-        data = ticker.info or {}
-        quote_type = HOLDABLE_TYPES.get(data.get("quoteType", ""), "Aktie")
+        try:
+            data = dict(ticker.info or {})
+        except Exception:  # z. B. „Too Many Requests“; die Kurs-Metadaten unten sind ein zweiter Weg
+            data = {}
+        if not data.get("currency") or not data.get("quoteType"):
+            try:
+                fast = ticker.fast_info
+                data.setdefault("currency", fast.currency)
+                data.setdefault("quoteType", fast.quote_type)
+            except Exception:  # auch dieser Weg kann scheitern
+                pass
+        if not any(data.get(k) for k in ("currency", "quoteType", "longName", "shortName")):
+            raise MarketDataError(f"Yahoo liefert für {symbol} gerade keine Stammdaten (möglicherweise zu viele "
+                                  "Abfragen). Bitte in einer Minute erneut versuchen.")
+        quote_type = HOLDABLE_TYPES.get(data.get("quoteType") or "", "Aktie")
         info = SecurityInfo(
             symbol=symbol,
             name=data.get("longName") or data.get("shortName") or symbol,
@@ -321,6 +340,10 @@ class YahooMarketData:
         """Tägliche Schlusskurse in Handelswährung; ``adjusted``: dividendenbereinigt."""
         close, _ = fetch_prices(list(symbols), start, end, adjusted)
         return close
+
+    def history(self, tickers: list[str], start: date, end: date) -> History:
+        """Tatsächliche und bereinigte Schlusskurse sowie Splits; Devisen als ``EURUSD=X`` usw."""
+        return fetch_history(list(tickers), start, end)
 
     def fx_rates(self, currencies: list[str], start: date, end: date) -> pd.DataFrame:
         pairs = {fx_ticker(c): c for c in sorted(set(currencies)) if c != BASE_CURRENCY}
@@ -478,6 +501,10 @@ DEMO_EXAMPLE = {
 }
 
 
+# Aktiensplits der Demo: Symbol -> (Handelstage vor dem Datenende, Verhältnis)
+DEMO_SPLITS = {"NLS.DEMO": (400, 4.0)}
+
+
 @lru_cache(maxsize=4)
 def _simulate_demo(end: date, years: int = 12, seed: int = 11) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Simulierte Kurse (Handelswährung) und Wechselkurse (Fremdwährung je Euro)."""
@@ -539,6 +566,28 @@ class DemoMarketData:
         prices, _ = self._data()
         cols = [s for s in symbols if s in prices.columns]
         return prices.loc[pd.Timestamp(start) : pd.Timestamp(end), cols]
+
+    def split_days(self) -> dict[str, pd.Timestamp]:
+        index = self._data()[0].index
+        return {symbol: index[-days] for symbol, (days, _) in DEMO_SPLITS.items()}
+
+    def history(self, tickers: list[str], start: date, end: date) -> History:
+        """Wie bei Yahoo: Kurse splitbereinigt, dazu die Splits; Devisen als ``EURUSD=X`` usw."""
+        prices, fx = self._data()
+        columns = {}
+        for t in tickers:
+            if t in prices.columns:
+                columns[t] = prices[t]
+            elif t.startswith("EUR") and t.endswith("=X") and t[3:-2] in fx.columns:
+                columns[t] = fx[t[3:-2]]
+        close = pd.DataFrame(columns, index=prices.index).loc[pd.Timestamp(start) : pd.Timestamp(end)]
+        splits = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        for symbol, day in self.split_days().items():
+            if symbol in splits.columns and day in splits.index:
+                splits.at[day, symbol] = DEMO_SPLITS[symbol][1]
+        missing = [t for t in tickers if t not in close.columns or close[t].dropna().empty]
+        return History(close.drop(columns=missing, errors="ignore"), close.drop(columns=missing, errors="ignore"),
+                       splits.drop(columns=missing, errors="ignore"), missing)
 
     def fx_rates(self, currencies: list[str], start: date, end: date) -> pd.DataFrame:
         _, fx = self._data()

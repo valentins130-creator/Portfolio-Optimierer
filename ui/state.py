@@ -4,8 +4,9 @@ Portfolios und der Kontext, den alle Seiten nutzen."""
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -26,24 +27,32 @@ from portfolio_optimizer.market import (
     price_in_euro,
     to_base_currency,
 )
-from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, PortfolioStore, valuation
+from portfolio_optimizer.data import split_events
+from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, PortfolioStore, split_factor, valuation
+from portfolio_optimizer.price_store import PriceStore
 
 PROVIDERS = {"yahoo": "Yahoo Finance (live)", "demo": "Offline-Demo"}
 DEFAULT_NAME = "Mein Depot"
 ANALYSIS_LIMIT = 24  # so viele Positionen nutzen die Analysen höchstens
 
 
-def store(provider: str) -> PortfolioStore:
-    """Echte und Demo-Portfolios liegen getrennt, weil die Symbole nicht zusammenpassen.
+def _root() -> Path:
+    """Ablageort: Ordner ``portfolios`` neben der App oder die Umgebungsvariable ``PORTFOLIO_DIR``."""
+    return Path(os.environ.get("PORTFOLIO_DIR") or Path(__file__).resolve().parents[1] / "portfolios")
 
-    Ablageort: Ordner ``portfolios`` neben der App oder die Umgebungsvariable ``PORTFOLIO_DIR``.
-    """
-    root = Path(os.environ.get("PORTFOLIO_DIR") or Path(__file__).resolve().parents[1] / "portfolios")
-    return PortfolioStore(root if provider == "yahoo" else root / "demo")
+
+def store(provider: str) -> PortfolioStore:
+    """Echte und Demo-Portfolios liegen getrennt, weil die Symbole nicht zusammenpassen."""
+    return PortfolioStore(_root() if provider == "yahoo" else _root() / "demo")
+
+
+def price_store() -> PriceStore:
+    """Zuletzt erfolgreich geladene Yahoo-Kurse (Rückfall, wenn Yahoo zeitweise nichts liefert)."""
+    return PriceStore(_root() / "kurse")
 
 
 # ---------------------------------------------------------------------------
-# Zwischengespeicherte Marktdaten
+# Marktdaten
 # ---------------------------------------------------------------------------
 
 
@@ -57,19 +66,85 @@ def security_info(provider: str, symbol: str) -> SecurityInfo:
     return get_provider(provider).info(symbol)
 
 
-@st.cache_data(ttl=3600, show_spinner="Lade Kurse …")
+@dataclass(frozen=True)
+class HistoryEUR:
+    close: pd.DataFrame  # tatsächliche Schlusskurse in Euro (splitbereinigt)
+    adjusted: pd.DataFrame  # zusätzlich dividendenbereinigt, für Renditen und Risiko
+    splits: dict[str, list[tuple[date, float]]]  # Symbol -> [(Ex-Tag, Verhältnis)]
+    missing: list[str]  # Symbole ohne Kurse
+    stale: dict[str, date]  # Symbole mit Kursen aus dem lokalen Speicher -> letzter Kurstag
+
+
+def _load_history(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date,
+                  end: date) -> HistoryEUR:
+    majors = sorted({major_currency(c)[0] for c in currencies} - {BASE_CURRENCY})
+    fx_tickers = {fx_ticker(c): c for c in majors}
+    hist = get_provider(provider).history([*symbols, *fx_tickers], start, end)  # ein Abruf samt Devisen
+    stale: dict[str, date] = {}
+    if provider == "yahoo":
+        hist, stale = price_store().complete(hist, start, end)
+    fx = hist.close[[t for t in fx_tickers if t in hist.close.columns]].rename(columns=fx_tickers)
+    have = [s for s in symbols if s in hist.close.columns]
+    currency = dict(zip(symbols, currencies))
+    close = to_base_currency(hist.close[have], {s: currency[s] for s in have}, fx).dropna(how="all")
+    adjusted = to_base_currency(hist.adj_close.reindex(columns=have), {s: currency[s] for s in have},
+                                fx).dropna(how="all")
+    have = [s for s in have if s in close.columns and close[s].notna().any()]  # ohne Wechselkurs kein Euro-Wert
+    # Kurse aus dem Speicher gelten als veraltet, ebenso alle, deren Wechselkurs von dort stammt
+    fx_stale = {fx_tickers[t] for t in stale if t in fx_tickers}
+    stale_symbols = {s: d for s, d in stale.items() if s in have}
+    for s in have:
+        if s not in stale_symbols and major_currency(currency[s])[0] in fx_stale:
+            stale_symbols[s] = min(d for t, d in stale.items() if t in fx_tickers)
+    return HistoryEUR(close[have], adjusted.reindex(columns=have), split_events(hist.splits.reindex(columns=have)),
+                      [s for s in symbols if s not in have], stale_symbols)
+
+
+class _Incomplete(Exception):
+    def __init__(self, result: HistoryEUR):
+        super().__init__("unvollständige Kursdaten")
+        self.result = result
+
+
+@st.cache_data(ttl=3600, show_spinner="Lade Kurse …", max_entries=300)
+def _history_cached(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date,
+                    end: date) -> HistoryEUR:
+    result = _load_history(provider, symbols, currencies, start, end)
+    if result.missing or result.stale:
+        raise _Incomplete(result)  # Lücken nicht eine Stunde lang festhalten
+    return result
+
+
+_RECENT_GAPS: dict[tuple, tuple[float, HistoryEUR]] = {}
+GAP_RETRY_SECONDS = 120  # so lange gilt ein lückenhaftes Ergebnis, bevor Yahoo erneut gefragt wird
+
+
+def history_eur(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date,
+                end: date) -> HistoryEUR:
+    """Kurse in Euro samt Splits. Vollständige Ergebnisse bleiben eine Stunde im Zwischenspeicher;
+    lückenhafte (Yahoo drosselt) nur zwei Minuten, damit nicht jeder Klick neu anfragt."""
+    key = (provider, tuple(symbols), tuple(currencies), start, end)
+    recent = _RECENT_GAPS.get(key)
+    if recent and time.monotonic() - recent[0] < GAP_RETRY_SECONDS:
+        return recent[1]
+    try:
+        result = _history_cached(*key)
+    except _Incomplete as exc:
+        _RECENT_GAPS[key] = (time.monotonic(), exc.result)
+        return exc.result
+    _RECENT_GAPS.pop(key, None)
+    return result
+
+
 def prices_eur(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date, end: date,
-               adjusted: bool = True):
+               adjusted: bool = True) -> pd.DataFrame:
     """Tägliche Schlusskurse in Euro; Spalten ohne Daten fehlen.
 
     ``adjusted``: dividendenbereinigt für Renditen und Risiko; sonst die tatsächlichen
     Schlusskurse für Bewertung, Wertentwicklung und Kursvorschläge.
     """
-    source = get_provider(provider)
-    raw = source.prices(list(symbols), start, end, adjusted=adjusted)
-    majors = sorted({major_currency(c)[0] for c in currencies} - {BASE_CURRENCY})
-    fx = source.fx_rates(majors, start, end) if majors else pd.DataFrame()
-    return to_base_currency(raw, dict(zip(symbols, currencies)), fx).dropna(how="all")
+    hist = history_eur(provider, tuple(symbols), tuple(currencies), start, end)
+    return (hist.adjusted if adjusted else hist.close).dropna(how="all")
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -97,16 +172,24 @@ def instrument_prices(provider: str, start: date, end: date) -> pd.DataFrame:
 
 
 def close_on(provider: str, info: SecurityInfo, when: date) -> tuple[float, date] | None:
-    """Schlusskurs in Euro am Datum oder am letzten Handelstag davor."""
+    """Tatsächlicher Schlusskurs in Euro am Datum oder am letzten Handelstag davor.
+
+    Liegt danach ein Aktiensplit, gilt der Kurs in der damaligen Stückelung – so wie in der
+    Abrechnung. Geladen wird ab Jahresbeginn, damit weitere Daten im selben Jahr keinen neuen
+    Abruf brauchen.
+    """
     try:
-        px = prices_eur(provider, (info.symbol,), (info.currency,), when - pd.Timedelta(days=10), when,
-                        adjusted=False)
+        hist = history_eur(provider, (info.symbol,), (info.currency,),
+                           date(when.year, 1, 1) - timedelta(days=10), date.today())
     except Exception:  # Netzwerkfehler: ohne Vorschlag weiter
         return None
-    if px.empty or info.symbol not in px:
+    if info.symbol not in hist.close.columns:
         return None
-    series = px[info.symbol].dropna()
-    return (float(series.iloc[-1]), series.index[-1].date()) if not series.empty else None
+    series = hist.close[info.symbol].loc[:pd.Timestamp(when)].dropna()
+    if series.empty:
+        return None
+    day = series.index[-1].date()
+    return float(series.iloc[-1]) * split_factor(hist.splits.get(info.symbol, []), day), day
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +238,8 @@ def current_portfolio(provider: str) -> Portfolio:
 
 # Eingaben, deren Voreinstellung vom Depot abhängt (Zielrisiko = Risiko des Depots, Anfangskapital =
 # Depotwert, auffälligstes Asset): beim Wechsel des Portfolios neu bestimmen
-PORTFOLIO_INPUTS = ("frontier_target", "frontier_target_widget", "mc_initial", "sens_asset")
+PORTFOLIO_INPUTS = ("frontier_target", "frontier_target_widget", "mc_initial", "sens_asset", "tx_marked",
+                    "tx_undo")
 
 
 def reset_portfolio_inputs() -> None:
@@ -189,22 +273,30 @@ def unique_name(provider: str, name: str) -> str:
 
 
 def example_portfolio(provider: str) -> Portfolio:
-    """Fiktives Beispieldepot mit Käufen vor drei und einem Jahr und einem Teilverkauf."""
+    """Fiktives Beispieldepot mit Käufen vor drei und einem Jahr und einem Teilverkauf.
+
+    Käufe vor einem Aktiensplit stehen wie in der Abrechnung: weniger Stücke zum damaligen Kurs.
+    """
     source = get_provider(provider)
     end = getattr(source, "end", date.today())
     infos = {s: source.info(s) for s in DEMO_EXAMPLE}
-    px = prices_eur(provider, tuple(infos), tuple(i.currency for i in infos.values()),
-                    (pd.Timestamp(end) - pd.DateOffset(years=4)).date(), end, adjusted=False)
+    hist = history_eur(provider, tuple(infos), tuple(i.currency for i in infos.values()),
+                       (pd.Timestamp(end) - pd.DateOffset(years=4)).date(), end)
+    px = hist.close
     last = px.index[-1]
     first, second, sale = (px.index[px.index.searchsorted(last - offset)]
                            for offset in (pd.DateOffset(years=3), pd.DateOffset(years=1), pd.DateOffset(months=6)))
-    portfolio = Portfolio(unique_name(provider, "Beispieldepot"))
+    portfolio = Portfolio(unique_name(provider, "Beispieldepot"), splits=hist.splits)
+
+    def buy(symbol: str, shares: float, day: pd.Timestamp) -> None:
+        factor = split_factor(hist.splits.get(symbol, []), day.date())  # damalige Stückelung
+        portfolio.add_transaction(infos[symbol], BUY, round(shares / factor, 2),
+                                  round(float(px.at[day, symbol]) * factor, 2), day.date())
+
     for symbol, amount in DEMO_EXAMPLE.items():
         total = amount / float(px[symbol].iloc[-1])
-        initial = round(total * 0.6, 2)
-        portfolio.add_transaction(infos[symbol], BUY, initial, round(float(px.at[first, symbol]), 2), first.date())
-        portfolio.add_transaction(infos[symbol], BUY, round(total - initial, 2), round(float(px.at[second, symbol]), 2),
-                                  second.date())
+        buy(symbol, total * 0.6, first)
+        buy(symbol, total * 0.4, second)
     bank = "BRB.DEMO"
     portfolio.add_transaction(infos[bank], SELL, round(portfolio.get(bank).shares * 0.25, 2),
                               round(float(px.at[sale, bank]), 2), sale.date())
@@ -227,6 +319,7 @@ class PortfolioContext:
     valuation: pd.DataFrame
     missing: list[str] = field(default_factory=list)
     adjusted: pd.DataFrame = field(default_factory=pd.DataFrame)  # dividendenbereinigt, Analysezeitraum
+    stale: dict[str, date] = field(default_factory=dict)  # Kurse aus dem lokalen Speicher -> letzter Kurstag
 
     @property
     def infos(self) -> dict[str, SecurityInfo]:
@@ -317,20 +410,22 @@ def load_context(settings: Settings) -> PortfolioContext:
     dated = [t.date for t in portfolio.transactions if t.date]
     history_start = min([settings.start, *dated])
     prices = adjusted = pd.DataFrame()
+    stale: dict[str, date] = {}
     if securities:
-        args = (provider, tuple(securities), tuple(i.currency for i in securities.values()))
         try:
-            prices = prices_eur(*args, history_start, settings.end, adjusted=False)
-            # Die Demo schüttet nichts aus: bereinigte und tatsächliche Kurse sind gleich
-            adjusted = prices if provider == "demo" else prices_eur(*args, settings.start, settings.end)
+            hist = history_eur(provider, tuple(securities), tuple(i.currency for i in securities.values()),
+                               history_start, settings.end)
         except Exception as exc:  # Netzwerkfehler von yfinance sind nicht einheitlich typisiert
             st.error(f"Kurse konnten nicht geladen werden: {exc}")
+        else:
+            prices, adjusted, stale = hist.close, hist.adjusted, hist.stale
+            portfolio.splits = hist.splits  # vor allen Beständen setzen: Splits ändern Stückzahlen
     held = {p.symbol: p.info for p in portfolio.positions}
     quotes = _quotes(provider, held, prices)
     missing = [s for s in held if s not in quotes.index]
     price = quotes["price"] if not quotes.empty else pd.Series(dtype=float)
     return PortfolioContext(provider, settings.start, settings.end, portfolio, prices, quotes,
-                            valuation(portfolio, price), missing, adjusted)
+                            valuation(portfolio, price), missing, adjusted, stale)
 
 
 # ---------------------------------------------------------------------------
