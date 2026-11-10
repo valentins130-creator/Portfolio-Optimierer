@@ -25,7 +25,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Terminal.
+Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Terminal. Nach einem Update der App die Pakete mit `python -m pip install -U -r requirements.txt` aktualisieren (die Oberfläche braucht Streamlit ab 1.66).
 
 ### Windows und VS Code
 
