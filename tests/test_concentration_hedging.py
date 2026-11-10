@@ -54,7 +54,7 @@ def test_analyze_flags_concentrations(returns):
     assert ("position", "Name T1") in exceeded
     assert ("sector", "Technologie") in exceeded
     assert ("currency", "USD") in exceeded
-    assert ("country", "USA") in exceeded
+    assert not any(kind == "country" for kind, _ in exceeded)  # Länder sind kein Klumpenkriterium mehr
     assert any(kind == "cluster" for kind, _ in exceeded)
     assert report.risk_shares.sum() == pytest.approx(1.0)
     # Die Tech-Werte tragen mehr Risiko als Gewicht
@@ -115,7 +115,7 @@ def test_cap_concentrations_is_minimal_and_feasible(returns):
              "W": SecurityInfo("W", "Welt", "ETF", "EUR", "Diversifiziert", FUND_COUNTRY,
                                {"Technologie": 0.25, "Versorger": 0.05, "Finanzen": 0.7})}
     current = pd.Series({"T1": 0.5, "T2": 0.3, "U1": 0.2, "W": 0.0})
-    limits = conc.Limits(position=0.25, sector=0.5, country=1.0, currency=1.0, cluster=1.0)
+    limits = conc.Limits(position=0.25, sector=0.5, currency=1.0, cluster=1.0)
     target = rb.cap_concentrations(current, infos, limits)
     assert target.sum() == pytest.approx(1.0)
     assert target[["T1", "T2", "U1"]].max() <= 0.25 + 1e-6
@@ -164,7 +164,7 @@ def test_demo_portfolio_end_to_end():
 def test_closest_to_limits_when_limits_are_unreachable(returns):
     infos = {"T1": _info("T1"), "T2": _info("T2"), "U1": _info("U1", "Versorger", "Deutschland", "EUR")}
     current = pd.Series({"T1": 0.5, "T2": 0.3, "U1": 0.2})
-    limits = conc.Limits(position=0.4, sector=0.3, country=1.0, currency=1.0, cluster=1.0)
+    limits = conc.Limits(position=0.4, sector=0.3, currency=1.0, cluster=1.0)
     with pytest.raises(rb.InfeasibleError):
         rb.cap_concentrations(current, infos, limits)
     target, remaining = rb.closest_to_limits(current, infos, limits)
@@ -177,7 +177,7 @@ def test_closest_to_limits_when_limits_are_unreachable(returns):
     assert list(remaining) == ["Sektor Technologie"]
     assert remaining["Sektor Technologie"] == pytest.approx(0.4, abs=1e-3)
     # Erreichbare Grenzen: dasselbe Ergebnis wie cap_concentrations
-    easy = conc.Limits(position=0.6, sector=1.0, country=1.0, currency=1.0, cluster=1.0)
+    easy = conc.Limits(position=0.6, sector=1.0, currency=1.0, cluster=1.0)
     target2, remaining2 = rb.closest_to_limits(current, infos, easy)
     assert remaining2 == {}
     pd.testing.assert_series_equal(target2, rb.cap_concentrations(current, infos, easy))

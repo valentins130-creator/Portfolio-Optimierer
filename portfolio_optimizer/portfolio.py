@@ -140,18 +140,57 @@ class Position:
         return self.info.symbol
 
 
+def split_factor(events: list[tuple[date, float]], when: date | None) -> float:
+    """Produkt der Split-Verhältnisse nach ``when`` (Splits ab ihrem Ex-Tag)."""
+    if when is None:
+        return 1.0
+    factor = 1.0
+    for day, ratio in events:
+        if day > when:
+            factor *= ratio
+    return factor
+
+
 @dataclass
 class Portfolio:
+    """Wertpapiere und Transaktionen, so wie sie erfasst wurden.
+
+    ``splits`` (Symbol -> [(Ex-Tag, Verhältnis)]) kommt aus den Marktdaten und wird nicht
+    gespeichert: Transaktionen vor einem Split zählen mit entsprechend mehr Stücken zu
+    einem entsprechend niedrigeren Kurs – passend zu den splitbereinigten Kursreihen.
+    """
+
     name: str
     securities: dict[str, SecurityInfo] = field(default_factory=dict)
     transactions: list[Transaction] = field(default_factory=list)
+    splits: dict[str, list[tuple[date, float]]] = field(default_factory=dict, repr=False, compare=False)
 
     def sale_gain(self, symbol: str, shares: float, price: float) -> float | None:
         """Gewinn eines gedachten Verkaufs heute nach FIFO; ``None`` ohne Kaufkurse."""
         return sale_gain(self.transactions_of(symbol), shares, price)
 
+    def adjusted(self, t: Transaction) -> Transaction:
+        """Transaktion in Stück und Kurs nach allen späteren Splits."""
+        factor = split_factor(self.splits.get(t.symbol, []), t.date)
+        if factor == 1.0:
+            return t
+        return Transaction(t.symbol, t.kind, t.shares * factor, t.price / factor if t.price else t.price, t.date)
+
+    def effective_transactions(self) -> list[Transaction]:
+        """Alle Transaktionen splitbereinigt (für Bestände, Gewinne und Wertentwicklung)."""
+        return [self.adjusted(t) for t in self.transactions]
+
     def transactions_of(self, symbol: str) -> list[Transaction]:
-        return [t for t in self.transactions if t.symbol == symbol]
+        """Splitbereinigte Transaktionen eines Wertpapiers."""
+        return [self.adjusted(t) for t in self.transactions if t.symbol == symbol]
+
+    def applied_splits(self) -> list[tuple[str, date, float]]:
+        """Splits, die erfasste Transaktionen betreffen: (Symbol, Ex-Tag, Verhältnis)."""
+        out = []
+        for symbol, events in self.splits.items():
+            dates = [t.date for t in self.transactions if t.symbol == symbol and t.date]
+            out += [(symbol, day, ratio) for day, ratio in events if dates and min(dates) < day]
+        return sorted(out, key=lambda e: e[1])
 
     @property
     def positions(self) -> list[Position]:
@@ -225,6 +264,30 @@ class Portfolio:
             raise
         if not self.transactions_of(tx.symbol):
             self.securities.pop(tx.symbol, None)
+
+    def remove_transactions(self, indices) -> list[str]:
+        """Löscht mehrere Transaktionen auf einmal – alle oder keine.
+
+        Rückgabe: Fehlermeldungen, wenn danach ein Verkauf den Bestand übersteigen würde;
+        dann bleibt alles unverändert.
+        """
+        drop = set(indices)
+        symbols = {self.transactions[i].symbol for i in drop}
+        before = self.transactions
+        self.transactions = [t for i, t in enumerate(before) if i not in drop]
+        errors = []
+        for symbol in sorted(symbols):
+            try:
+                self._check(symbol)
+            except ValueError as exc:
+                errors.append(str(exc))
+        if errors:
+            self.transactions = before
+            return errors
+        for symbol in symbols:
+            if not self.transactions_of(symbol):
+                self.securities.pop(symbol, None)
+        return []
 
     def remove(self, symbol: str) -> None:
         """Entfernt ein Wertpapier mit allen Transaktionen."""
@@ -321,6 +384,16 @@ def _slug(name: str) -> str:
     return slug or "portfolio"
 
 
+TRASH_DAYS = 30
+
+
+@dataclass(frozen=True)
+class TrashItem:
+    name: str
+    deleted: datetime
+    path: Path
+
+
 class PortfolioStore:
     """Speichert Portfolios als JSON-Dateien in einem Ordner."""
 
@@ -348,11 +421,49 @@ class PortfolioStore:
         self.folder.mkdir(parents=True, exist_ok=True)
         self._path(portfolio.name).write_text(portfolio.to_json(), encoding="utf-8")
 
-    def delete(self, name: str) -> None:
-        self._path(name).unlink(missing_ok=True)
-
     def exists(self, name: str) -> bool:
         return self._path(name).exists()
+
+    # Papierkorb: Löschen verschiebt nur; nach TRASH_DAYS Tagen wird endgültig aufgeräumt
+
+    @property
+    def trash_folder(self) -> Path:
+        return self.folder / "papierkorb"
+
+    def delete(self, name: str) -> None:
+        """Verschiebt das Portfolio in den Papierkorb."""
+        source = self._path(name)
+        if not source.exists():
+            return
+        self.trash_folder.mkdir(parents=True, exist_ok=True)
+        source.replace(self.trash_folder / f"{source.stem}--{datetime.now():%Y%m%d-%H%M%S-%f}.json")
+
+    def trash(self) -> list[TrashItem]:
+        """Gelöschte Portfolios, neueste zuerst; abgelaufene Einträge werden dabei entfernt."""
+        items = []
+        if not self.trash_folder.is_dir():
+            return items
+        for path in self.trash_folder.glob("*--*.json"):
+            try:
+                deleted = datetime.strptime(path.stem.rsplit("--", 1)[1], "%Y%m%d-%H%M%S-%f")
+                name = json.loads(path.read_text(encoding="utf-8"))["name"]
+            except (OSError, ValueError, KeyError):
+                continue
+            if (datetime.now() - deleted).days >= TRASH_DAYS:
+                path.unlink(missing_ok=True)
+                continue
+            items.append(TrashItem(name, deleted, path))
+        return sorted(items, key=lambda item: item.deleted, reverse=True)
+
+    def restore(self, item: TrashItem) -> Portfolio:
+        """Holt ein Portfolio zurück; gibt es den Namen inzwischen, bekommt es einen Zusatz."""
+        portfolio = Portfolio.from_dict(json.loads(item.path.read_text(encoding="utf-8")))
+        base, i = portfolio.name, 2
+        while self.exists(portfolio.name):
+            portfolio.name, i = f"{base} ({i})", i + 1
+        self.save(portfolio)
+        item.path.unlink(missing_ok=True)
+        return portfolio
 
 
 # ---------------------------------------------------------------------------

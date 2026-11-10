@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 try:
     import streamlit as st
@@ -36,20 +37,22 @@ if __name__ == "__main__" and get_script_run_ctx(suppress_warning=True) is None:
     sys.argv = ["streamlit", "run", os.path.abspath(__file__), *sys.argv[1:]]
     sys.exit(cli.main())
 
-st.set_page_config(page_title="Portfolio-Optimierer", page_icon="📈", layout="wide",
+HERE = Path(__file__).resolve().parent
+st.set_page_config(page_title="Portfolio-Optimierer", page_icon=str(HERE / "static" / "mark.svg"), layout="wide",
                    initial_sidebar_state="collapsed")
 
 PAGES = [
-    st.Page("views/portfolio.py", title="Portfolio", icon=":material/account_balance_wallet:", default=True),
-    st.Page("views/analysen.py", title="Analysen", icon=":material/insights:"),
-    st.Page("views/loesungen.py", title="Lösungen", icon=":material/build:"),
+    st.Page("views/portfolio.py", title="Portfolio", default=True),
+    st.Page("views/analysen.py", title="Analysen"),
+    st.Page("views/loesungen.py", title="Lösungen"),
 ]
 
 
 def main() -> None:
     common.keep_page_state()
+    st.logo(str(HERE / "static" / "logo.svg"), size="large")
     th = common.theme()
-    common.inject_style(th)
+    common.inject_style()
     page = st.navigation(PAGES, position="top")
     settings = header.render()
     ctx = state.load_context(settings)

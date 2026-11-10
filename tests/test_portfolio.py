@@ -71,6 +71,23 @@ def test_store_save_list_load_delete(tmp_path):
     assert store.names() == ["Altersvorsorge 2050"]
 
 
+def test_deleted_portfolios_go_to_the_trash_and_can_be_restored(tmp_path):
+    store = PortfolioStore(tmp_path / "pf")
+    pf = Portfolio("Alpha")
+    pf.add(SAP, 3, 180.0)
+    store.save(pf)
+    store.delete("Alpha")
+    assert store.names() == [] and [item.name for item in store.trash()] == ["Alpha"]
+    store.save(Portfolio("Alpha"))  # inzwischen gibt es wieder ein „Alpha“
+    restored = store.restore(store.trash()[0])
+    assert restored.name == "Alpha (2)" and restored.get("SAP.DE").shares == 3
+    assert store.names() == ["Alpha", "Alpha (2)"] and store.trash() == []
+    store.delete("Alpha")
+    old = next(store.trash_folder.glob("*.json"))
+    old.rename(old.with_name("alpha--20200101-000000-000000.json"))  # älter als 30 Tage
+    assert store.trash() == [] and not any(store.trash_folder.glob("*.json"))
+
+
 def test_valuation_values_pnl_and_weights():
     pf = Portfolio("Test")
     pf.add(APPLE, 10, 100.0)

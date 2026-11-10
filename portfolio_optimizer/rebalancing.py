@@ -29,7 +29,7 @@ def limit_constraints(
             rows.append(row)
             bounds.append(limits.position)
             labels.append(f"Einzelwert {infos[symbol].name}")
-    for by, label in (("sector", "Sektor"), ("country", "Land"), ("currency", "Währung")):
+    for by, label in (("sector", "Sektor"), ("currency", "Währung")):
         matrix = exposure_matrix({s: infos[s] for s in symbols}, by).reindex(columns=symbols).fillna(0.0)
         for group in matrix.index:
             if is_concentration_group(by, group):

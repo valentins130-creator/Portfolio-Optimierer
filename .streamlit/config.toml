@@ -1,14 +1,38 @@
-# Helles Design mit dezenten blauen Akzenten – unabhängig davon, ob das Betriebssystem
-# auf Dunkel steht. (Kennzahl-Kacheln und Abschnittsköpfe färbt ui/common.py ein.)
+# Helles Design: warmer Papierton, Navy als Akzent, Schrift IBM Plex Sans (liegt in
+# static/fonts und wird von der App selbst ausgeliefert – ohne Google-Server).
+# Feinheiten wie Karten und Kennzahlen setzt ui/common.py.
+
+[server]
+enableStaticServing = true
+
 [theme]
 base = "light"
-primaryColor = "#2a78d6"
-backgroundColor = "#fbfbfa"
-secondaryBackgroundColor = "#eef2f7"
+primaryColor = "#1f3a5f"
+backgroundColor = "#f5f3ee"
+secondaryBackgroundColor = "#ffffff"
 textColor = "#16191d"
-linkColor = "#1c5cab"
-borderColor = "#d6dfea"
-dataframeHeaderBackgroundColor = "#eef4fc"
+linkColor = "#1f3a5f"
+borderColor = "#dcd6ca"
+showWidgetBorder = true
+dataframeHeaderBackgroundColor = "#f1eee7"
+baseRadius = "0.5rem"
+font = "IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif"
+baseFontSize = 15
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-400-normal.woff2"
+weight = 400
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-500-normal.woff2"
+weight = 500
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-600-normal.woff2"
+weight = 600
 
 [global]
 # Seitenübergreifend behaltene Eingaben (ui/common.keep_page_state) sind gewollt

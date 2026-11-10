@@ -1,5 +1,8 @@
-"""Klumpenrisiko: Konzentration nach Einzelwerten, Sektoren, Ländern, Währungen
-und Gruppen stark korrelierter Positionen.
+"""Klumpenrisiko: Konzentration nach Einzelwerten, Sektoren, Währungen und Gruppen
+stark korrelierter Positionen.
+
+Länder bleiben außen vor: Für Fonds liefern die Datenquellen keine Länderaufteilung,
+eine Länderkonzentration wäre deshalb irreführend.
 
 Neben dem Gewicht zählt der Risikoanteil: Eine Position mit 10 % Gewicht kann
 ein Drittel der Schwankung verursachen, wenn sie volatil ist und mit dem Rest
@@ -21,8 +24,8 @@ from .portfolio import exposure_matrix, is_concentration_group
 
 PERIODS_PER_YEAR = 52  # Wochenrenditen
 
-KINDS = {"position": "Einzelwert", "sector": "Sektor", "country": "Land", "currency": "Währung",
-         "cluster": "Korrelations-Cluster"}
+KINDS = {"position": "Einzelwert", "sector": "Sektor", "currency": "Währung", "cluster": "Korrelations-Cluster"}
+GROUPS = ("sector", "currency")  # Aufteilungen, für die Grenzen gelten
 
 
 @dataclass(frozen=True)
@@ -31,7 +34,6 @@ class Limits:
 
     position: float = 0.10  # einzelne Aktie (Fonds sind selbst gestreut)
     sector: float = 0.30
-    country: float = 0.60
     currency: float = 0.50  # je Fremdwährung
     cluster: float = 0.40
     correlation: float = 0.70  # ab dieser Korrelation gelten Positionen als "ähnlich"
@@ -135,7 +137,7 @@ def analyze(
             findings.append(Finding("position", infos[symbol].name, float(weights[symbol]), limits.position,
                                     float(rc[symbol]), {symbol: 1.0}))
 
-    for by in ("sector", "country", "currency"):
+    for by in GROUPS:
         matrix = exposure_matrix({s: infos[s] for s in symbols}, by)
         group_weights = matrix @ weights.reindex(matrix.columns)
         group_risk = matrix @ rc.reindex(matrix.columns)

@@ -131,6 +131,36 @@ def test_yahoo_info_for_stock_and_funds(fake_yfinance):
     assert bonds.currency == "EUR"  # aus der Börsenendung abgeleitet
 
 
+def test_yahoo_info_without_data_raises_instead_of_guessing(monkeypatch):
+    class Ticker:
+        def __init__(self, symbol):
+            self.info = {}  # z. B. gedrosselt
+
+        @property
+        def fast_info(self):
+            raise RuntimeError("Too Many Requests")
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=Ticker))
+    with pytest.raises(market.MarketDataError, match="keine Stammdaten"):
+        market.YahooMarketData().info("0P0001O0JW")
+
+
+def test_yahoo_info_uses_price_metadata_when_quote_summary_fails(monkeypatch):
+    class Ticker:
+        def __init__(self, symbol):
+            self.fast_info = types.SimpleNamespace(currency="EUR", quote_type="MUTUALFUND")
+            self.funds_data = types.SimpleNamespace(sector_weightings={})
+
+        @property
+        def info(self):
+            raise RuntimeError("Too Many Requests")
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=Ticker))
+    fund = market.YahooMarketData().info("0P0001O0JW")
+    assert (fund.currency, fund.quote_type, fund.name) == ("EUR", "Fonds", "0P0001O0JW")
+    assert market.SearchHit("0P0001O0JW", "0P0001O0JW", "Fonds").label == "0P0001O0JW · Fonds"
+
+
 def test_price_in_euro_and_fx_ticker():
     assert market.fx_ticker("USD") == "EURUSD=X"
     assert market.price_in_euro(110.0, "USD", {"USD": 1.1}) == pytest.approx(100.0)

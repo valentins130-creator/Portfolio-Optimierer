@@ -10,11 +10,11 @@ Die App hat drei Ebenen, die oben in der Leiste anklickbar sind. Jede Ebene best
 
 | Ebene | Abschnitte |
 |---|---|
-| **Portfolio** | Transaktion erfassen · Positionen · Transaktionen · Wertentwicklung · Kursdaten und Kennzahlen · Aufteilung nach Sektoren, Ländern und Währungen |
+| **Portfolio** | Transaktion erfassen · Positionen · Transaktionen · Wertentwicklung · Kursdaten und Kennzahlen · Aufteilung nach Sektoren und Währungen |
 | **Analysen** | Klumpenrisiko · Markowitz – Efficient Frontier · Monte Carlo · Schätzfehler |
 | **Lösungen** | Umschichtung · Absicherung |
 
-Die Kopfzeile darüber gilt für alle Ebenen: Portfolio auswählen, **Neu** (leeres Portfolio oder Beispieldepot), **Export/Import**, **Löschen** und **Einstellungen**. Dort werden Marktdaten (Yahoo Finance oder Offline-Demo), die Länge der Historie für die Analysen, die Schätzer (historischer Mittelwert oder Bayes-Stein, Stichproben-Kovarianz oder Ledoit-Wolf), der risikolose Zins und die Gewichtsgrenzen (long-only, Höchstgewichte, Leerverkäufe oder klassischer unbeschränkter Markowitz) eingestellt.
+Die Kopfzeile darüber gilt für alle Ebenen: Portfolio auswählen, **Verwalten** (Neu, Import/Export, Löschen, Papierkorb) und **Einstellungen**. Dort werden Marktdaten (Yahoo Finance oder Offline-Demo), die Länge der Historie für die Analysen, die Schätzer (historischer Mittelwert oder Bayes-Stein, Stichproben-Kovarianz oder Ledoit-Wolf), der risikolose Zins und die Gewichtsgrenzen (long-only, Höchstgewichte, Leerverkäufe oder klassischer unbeschränkter Markowitz) eingestellt.
 
 ## Schnellstart
 
@@ -36,11 +36,13 @@ Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Te
 
 ## Portfolio
 
-**Marktdaten.** Unter **Einstellungen** stehen Yahoo Finance oder eine **Offline-Demo** mit fiktiven Wertpapieren zur Wahl. In der Demo lädt **Neu** → „Beispieldepot laden“ ein Depot mit Käufen über drei Jahre und einem Teilverkauf. Yahoo-Daten kommen über [yfinance](https://github.com/ranaroussi/yfinance), eine inoffizielle Schnittstelle, für die die Nutzungsbedingungen von Yahoo gelten.
+**Marktdaten.** Unter **Einstellungen** stehen Yahoo Finance oder eine **Offline-Demo** mit fiktiven Wertpapieren zur Wahl. In der Demo lädt **Verwalten → Neu → Beispieldepot laden** ein Depot mit Käufen über drei Jahre, einem Teilverkauf und einem Aktiensplit 4:1. Yahoo-Daten kommen über [yfinance](https://github.com/ranaroussi/yfinance), eine inoffizielle Schnittstelle, für die die Nutzungsbedingungen von Yahoo gelten.
 
-**Kurse.** Während der Handelszeit bewertet die App mit dem letzten Minutenkurs von Yahoo (in der Regel etwa 15 Minuten verzögert), sonst mit dem letzten Schlusskurs. Die Spalte „Stand“ der Positionstabelle zeigt, welcher Kurs gilt, etwa „live 14:32“ oder „Schluss 06.11.2026“. Bewertung, Wertentwicklung und der Kursvorschlag beim Erfassen beruhen auf den tatsächlichen Schlusskursen; Renditen und Risiken in den Analysen auf dividendenbereinigten Kursen. Alle Werte werden zum jeweiligen Tageskurs in Euro umgerechnet, auch Kurse in Pence (GBp).
+**Kurse.** Während der Handelszeit bewertet die App mit dem letzten Minutenkurs von Yahoo (in der Regel etwa 15 Minuten verzögert), sonst mit dem letzten Schlusskurs. Die Spalte „Stand“ der Positionstabelle zeigt, welcher Kurs gilt, etwa „live 14:32“ oder „Schluss 06.11.2026“. Bewertung, Wertentwicklung und der Kursvorschlag beim Erfassen beruhen auf den tatsächlichen Schlusskursen; Renditen und Risiken in den Analysen auf dividendenbereinigten Kursen. Alle Werte werden zum jeweiligen Tageskurs in Euro umgerechnet, auch Kurse in Pence (GBp). Warum Kurse zeitweise fehlen können und was die App dagegen tut, steht unter [Fehlende Kurse](#fehlende-kurse).
 
-**Transaktionen.** Ein Wertpapier per Name, Ticker oder ISIN suchen oder aus dem Depot wählen, dann Kauf oder Verkauf mit Datum, Stückzahl und Kurs je Stück in Euro (wie in der Abrechnung) erfassen. „Schlusskurs übernehmen“ setzt den Schlusskurs des gewählten Tages ein. Ein Verkauf kann den Bestand an seinem Datum nicht übersteigen. In der Tabelle **Transaktionen** lassen sich Datum, Typ, Stück und Kurs ändern und Transaktionen löschen. Einstandskurse und realisierte Gewinne folgen dem FIFO-Prinzip: Die zuerst gekauften Stücke gelten als zuerst verkauft.
+**Transaktionen.** Ein Wertpapier per Name, Ticker oder ISIN suchen oder aus dem Depot wählen, dann Kauf oder Verkauf mit Datum, Stückzahl und Kurs je Stück in Euro erfassen. Sobald Wertpapier oder Datum feststehen, trägt die App den Schlusskurs dieses Tages ein; gibt es keinen, bleibt das Feld leer. Für genaue Gewinne den Ausführungskurs aus der Abrechnung eintragen. Ein Verkauf kann den Bestand an seinem Datum nicht übersteigen. In der Tabelle **Transaktionen** lassen sich Datum, Typ, Stück und Kurs direkt ändern. Gelöscht wird in zwei Schritten: Zeilen markieren, dann „markierte löschen“; danach lässt sich das Löschen rückgängig machen. Einstandskurse und realisierte Gewinne folgen dem FIFO-Prinzip: Die zuerst gekauften Stücke gelten als zuerst verkauft.
+
+**Kapitalmaßnahmen.** Aktiensplits und Reverse-Splits berücksichtigt die App automatisch: Yahoo liefert sie mit den Kursen, und Transaktionen vor einem Split zählen mit entsprechend mehr (bzw. weniger) Stücken zum angepassten Kurs. Erfasst werden Käufe wie in der Abrechnung, also in der damaligen Stückelung; auch der vorgeschlagene Schlusskurs ist der damalige. Unter den Positionen steht, welcher Split berücksichtigt wurde. Andere Kapitalmaßnahmen erkennt die App nicht automatisch; sie lassen sich als Transaktionen abbilden: eine Abspaltung (Spin-off) als Kauf der neuen Aktien mit dem Kurs, den die Abrechnung der Depotbank ausweist, eine Fusion oder ein Umtausch als Verkauf der alten und Kauf der neuen Aktie, eine Kapitalerhöhung als Kauf der neuen Aktien zum Bezugspreis.
 
 **Wertentwicklung.**
 
@@ -52,9 +54,9 @@ Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Te
 
 **Kursdaten und Kennzahlen.** Wertentwicklung der Positionen im Analysezeitraum, erwartete Rendite, CAGR, Volatilität, Sharpe-Ratio, maximaler Drawdown und Korrelationen.
 
-**Aufteilung.** Nach Sektoren, Ländern und Handelswährungen. ETFs werden über ihre Sektorgewichte aufgeschlüsselt (Durchschau), soweit Yahoo diese liefert. Für Länder liefert Yahoo bei Fonds keine Aufteilung; sie erscheinen als „Mehrere Länder (Fonds)“.
+**Aufteilung.** Nach Sektoren und Handelswährungen. ETFs werden über ihre Sektorgewichte aufgeschlüsselt (Durchschau), soweit Yahoo diese liefert. Eine Länderaufteilung gibt es bewusst nicht: Für Fonds liefert die Datenquelle keine, und ohne sie wäre das Bild schief.
 
-**Speichern.** Jede Änderung wird als JSON im Ordner `portfolios/` gespeichert (Demo-Portfolios in `portfolios/demo/`). Der Ordner ist von Git ausgeschlossen, weil er private Daten enthält. Mit der Umgebungsvariable `PORTFOLIO_DIR` lässt sich ein anderer Ort wählen. Export und Import als JSON oder CSV (Semikolon, deutsches Zahlen- und Datumsformat). Pflicht sind die Spalten `Symbol` und `Stück`, optional `Datum`, `Typ` (Kauf oder Verkauf, sonst Kauf) und `Kurs` in Euro je Stück:
+**Speichern.** Jede Änderung wird als JSON im Ordner `portfolios/` gespeichert (Demo-Portfolios in `portfolios/demo/`). Der Ordner ist von Git ausgeschlossen, weil er private Daten enthält. Gelöschte Portfolios landen 30 Tage im Papierkorb (`portfolios/papierkorb/`) und lassen sich unter **Verwalten → Papierkorb** wiederherstellen. Mit der Umgebungsvariable `PORTFOLIO_DIR` lässt sich ein anderer Ort wählen. Export und Import als JSON oder CSV (Semikolon, deutsches Zahlen- und Datumsformat). Pflicht sind die Spalten `Symbol` und `Stück`, optional `Datum`, `Typ` (Kauf oder Verkauf, sonst Kauf) und `Kurs` in Euro je Stück:
 
 ```
 Datum;Typ;Symbol;Stück;Kurs
@@ -67,7 +69,7 @@ Dateien im früheren Format (`Symbol;Stück;Kaufkurs`) werden weiterhin gelesen;
 
 ## Analysen
 
-- **Klumpenrisiko:** Konzentration nach Einzelaktie, Sektor, Land, Fremdwährung und Gruppen stark korrelierter Einzelwerte (hierarchisches Clustering). Zu jeder Gruppe gehört neben dem Gewicht der **Risikoanteil**, also der Teil der Depotschwankung, den sie verursacht. Die Grenzen (Standard: 10 % je Aktie, 30 % je Sektor, 60 % je Land, 50 % je Fremdwährung, 40 % je Cluster) sind unter „Grenzen anpassen“ einstellbar und gelten auch für die Umschichtung.
+- **Klumpenrisiko:** Konzentration nach Einzelaktie, Sektor, Fremdwährung und Gruppen stark korrelierter Einzelwerte (hierarchisches Clustering). Zu jeder Gruppe gehört neben dem Gewicht der **Risikoanteil**, also der Teil der Depotschwankung, den sie verursacht. Die Grenzen (Standard: 10 % je Aktie, 30 % je Sektor, 50 % je Fremdwährung, 40 % je Cluster) sind unter „Grenzen anpassen“ einstellbar und gelten auch für die Umschichtung.
 - **Markowitz – Efficient Frontier:** effizienter Rand der Depotpositionen mit Kapitalmarktlinie, Minimum-Varianz- und Max-Sharpe-Portfolio und dem eigenen Depot. **Effizient bei Zielrisiko** ist das Portfolio mit der höchsten erwarteten Rendite bei der gewählten Volatilität. Voreingestellt ist das Risiko des eigenen Depots; die Kennzahlen zeigen dann, wie viel mehr Rendite bei gleichem Risiko laut Schätzung möglich wäre. Das Diagramm **Zusammensetzung der effizienten Portfolios je Risikoniveau** zeigt für jedes Risiko die Gewichte des effizienten Portfolios; eine gestrichelte Linie markiert das Zielrisiko.
 - **Monte Carlo:** parametrische Simulation (korrelierte geometrische Brownsche Bewegung) oder historisches Block-Bootstrap, mit Sparrate, Fächerdiagramm, Verteilung des Endvermögens, Verlust- und Zielwahrscheinlichkeit und Drawdowns. Vorausgewählt sind das eigene Depot und sein Wert als Anfangskapital.
 - **Schätzfehler:** Konfidenzintervalle der erwarteten Renditen, Sensitivität der Gewichte, Simulationsexperiment „versprochen vs. geliefert“, Vergleich mit Shrinkage, Resampling, Minimum-Varianz und 1/N.
@@ -83,6 +85,20 @@ Alle Risiko- und Hedge-Kennzahlen des Klumpenrisikos und der Lösungen beruhen a
   - *Markt-Hedge:* Beta des Depots gegenüber mehreren Indizes. Das Instrument mit dem höchsten R² ist der beste Hedge; Short-Betrag = Beta × Depotwert × Absicherungsquote.
   - *Beimischung:* Wirkung von Anleihen, Geldmarkt, Gold, Nebenwerten usw. auf Volatilität, maximalen Rückgang und Rendite.
   - *Klumpenrisiko absichern:* Für jede Konzentration über der Grenze der Verkaufsbetrag bis zur Grenze oder die Absicherung genau dieses Überhangs über das am besten passende Sektor- oder Index-Instrument bzw. ein Devisentermingeschäft.
+
+## Fehlende Kurse
+
+Yahoo begrenzt, wie oft Daten abgefragt werden dürfen. Kommen zu viele Anfragen in kurzer Zeit („Too Many Requests“), liefert Yahoo für einzelne Wertpapiere zeitweise nichts – das betrifft beliebige Werte, etwa SAP ebenso wie Fonds. Bei Fonds mit Morningstar-Kennung (Symbole wie `0P0001O0JW`) kommt hinzu, dass Yahoo deren Anteilspreise oft nur lückenhaft und mit ein bis zwei Tagen Verzögerung führt.
+
+Die App geht damit so um:
+
+- Kurse, Dividendenbereinigung und Splits eines Depots kommen in **einem** Abruf, samt Wechselkursen.
+- Fehlt ein Wertpapier, fragt die App es nach einer kurzen Pause einzeln noch einmal ab.
+- Vollständige Ergebnisse bleiben eine Stunde im Zwischenspeicher, lückenhafte nur zwei Minuten – danach versucht es die App erneut, statt die Lücke eine Stunde festzuhalten.
+- Jede erfolgreich geladene Kursreihe wird lokal gespeichert (`portfolios/kurse/`). Liefert Yahoo später nichts, rechnet die App mit diesen Kursen weiter und zeigt den Stand an.
+- Liefert Yahoo keine Stammdaten (Name, Währung, Art), wird nichts geraten und gespeichert; die App meldet das, und ein zweiter Versuch einige Sekunden später klappt in der Regel.
+
+Fehlt ein Fonds dauerhaft, hilft oft die Suche nach seiner ISIN und die Wahl einer Notierung mit Börsenkürzel (etwa `.F` für Frankfurt). Außerdem lohnt es sich, yfinance aktuell zu halten (`python -m pip install -U yfinance`), weil Yahoo seine Schnittstelle immer wieder ändert.
 
 ## Methodik
 
@@ -134,13 +150,15 @@ portfolio_optimizer/
   monte_carlo.py               GBM-Simulation und Block-Bootstrap
   instability.py               Schätzunsicherheit, Sensitivität, Simulationsexperimente
   market.py                    Suche, Stammdaten, Kurse, Live-Kurse, Wechselkurse (Yahoo und Offline-Demo)
-  portfolio.py                 Transaktionen, FIFO, Speichern/Laden, Bewertung, Aufteilung
+  portfolio.py                 Transaktionen, FIFO, Aktiensplits, Speichern/Laden mit Papierkorb, Bewertung
+  price_store.py               Lokaler Kursspeicher als Rückfall, wenn Yahoo zeitweise nichts liefert
   performance.py               Depotwert, Einzahlungen, zeitgewichtete Rendite, interner Zinsfuß, Indexvergleich
   concentration.py             Klumpenrisiko: Konzentrationen, Cluster, Risikoanteile
   hedging.py                   Markt-Hedge, Beimischungen, Absicherung von Klumpen
   rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
+static/                        Logo und Schrift (IBM Plex Sans, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
 ```
 
@@ -157,7 +175,7 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 
 - Keine Anlageberatung. Die App ist ein Lern- und Analysewerkzeug.
 - Transaktionskosten und Steuern werden nicht berücksichtigt. Ausgeschüttete Dividenden werden nicht als Zahlungen erfasst und fehlen daher in Gewinn und persönlicher Rendite.
-- Aktiensplits werden nicht umgerechnet: Yahoo liefert splitbereinigte Kurse, deshalb Käufe vor einem Split mit splitbereinigter Stückzahl und Kurs erfassen.
+- Von den Kapitalmaßnahmen werden nur Aktiensplits automatisch berücksichtigt; Abspaltungen, Fusionen und Bezugsrechte als Transaktionen erfassen (siehe oben).
 - Absicherungen und Umschichtungen beruhen auf historischen Daten. Hedges sichern mit dem Risiko auch die erwartete Rendite ab und verursachen Kosten.
 - Die parametrische Simulation unterstellt normalverteilte Log-Renditen und behandelt die geschätzten Parameter als bekannt. Wie problematisch das ist, zeigt der Abschnitt „Schätzfehler“.
 - Die frühere Seitenleiste mit freier Ticker-Auswahl, CSV-Kursdateien und Demo-Assetklassen ist vorerst ausgeblendet; die Analysen beziehen sich auf das eigene Depot.
