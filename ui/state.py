@@ -106,7 +106,7 @@ class _Incomplete(Exception):
         self.result = result
 
 
-@st.cache_data(ttl=3600, show_spinner="Lade Kurse …", max_entries=300)
+@st.cache_data(ttl=3600, show_spinner="Lade Kurse…", max_entries=300)
 def _history_cached(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date,
                     end: date) -> HistoryEUR:
     result = _load_history(provider, symbols, currencies, start, end)
@@ -239,7 +239,7 @@ def current_portfolio(provider: str) -> Portfolio:
 # Eingaben, deren Voreinstellung vom Depot abhängt (Zielrisiko = Risiko des Depots, Anfangskapital =
 # Depotwert, auffälligstes Asset): beim Wechsel des Portfolios neu bestimmen
 PORTFOLIO_INPUTS = ("frontier_target", "frontier_target_widget", "mc_initial", "sens_asset", "tx_marked",
-                    "tx_undo")
+                    "tx_undo", "sec_add")  # sec_add: Erfassen offen nur bei leerem Depot
 
 
 def reset_portfolio_inputs() -> None:

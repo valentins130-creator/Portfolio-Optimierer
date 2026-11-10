@@ -75,7 +75,8 @@ def _hero(ctx: PortfolioContext) -> None:
         cost, now = float(val.loc[known, "cost"].sum()), float(val.loc[known, "value"].sum())
         diff = now - cost
         tone = "po-up" if diff > 0 else "po-down" if diff < 0 else ""
-        arrow = "▲ " if diff > 0 else "▼ " if diff < 0 else ""
+        arrow = ('<span aria-hidden="true">▲ </span>' if diff > 0 else
+                 '<span aria-hidden="true">▼ </span>' if diff < 0 else "")
         parts.append(f'<span><span class="{tone}">{arrow}{_signed_eur(diff)} ({pct(now / cost - 1, signed=True)})'
                      "</span> unrealisiert</span>")
     realized = ctx.portfolio.realized_gains()
@@ -141,8 +142,8 @@ def _pick_security(ctx: PortfolioContext):
         symbol = st.selectbox("Wertpapier aus dem Depot", list(securities),
                               format_func=lambda s: _label(securities[s]), key="tx_symbol")
         return symbol, securities[symbol]
-    placeholder = ("z. B. Nordlicht, Technologie, ETF" if ctx.provider == "demo"
-                   else "Name, Ticker oder ISIN – z. B. Apple, SAP.DE oder IE00B4L5Y983")
+    placeholder = ("z. B. Nordlicht, Technologie, ETF…" if ctx.provider == "demo"
+                   else "Name, Ticker oder ISIN – z. B. Apple, SAP.DE oder IE00B4L5Y983…")
     query = st.text_input("Wertpapier suchen", key="tx_query", placeholder=placeholder).strip()
     if not query:
         return None

@@ -212,7 +212,7 @@ def frontier(run: RunState) -> None:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(show_spinner="Simuliere Pfade …", max_entries=20)
+@st.cache_data(show_spinner="Simuliere Pfade…", max_entries=20)
 def run_simulation(method, weights, mu, cov, returns, years, n_paths, initial, contribution, seed):
     if method == "gbm":
         return mc.simulate_gbm(weights, mu, cov, years, n_paths, initial, contribution, seed=seed)
