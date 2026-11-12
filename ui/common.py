@@ -6,57 +6,100 @@ import streamlit as st
 
 from portfolio_optimizer import charts
 
-# Farbwelt: warmes Papier, Karten in fast Weiß, Navy als Akzent, Gold nur für Bildmarke und
-# Abschnittssymbole. Daten tragen die geprüfte Diagrammpalette (charts.py), Texte nie Datenfarben.
+# Farbwelt: warmes Off-White, Karten eine Stufe heller, Tiefblau für Aktionen, dezentes Orange für
+# Hinweise und Abschnittssymbole. Jede Farbe gilt für hell und dunkel: Streamlit setzt das
+# Farbschema (color-scheme) der App, light-dark() wählt daraus den passenden Wert. Daten tragen die
+# geprüfte Diagrammpalette (charts.py), Texte nie Datenfarben.
 TOKENS = {
-    "paper": "#f5f3ee", "card": "#fcfbf8", "line": "#e4dfd4", "ink": "#16191d", "ink2": "#52514e",
-    "muted": "#898781", "navy": "#1f3a5f", "gold": "#b8892f", "up": "#006300", "down": "#c4312f",
+    "bg": ("#f8f5ef", "#0c1222"),
+    "card": ("#fffdf9", "#141c30"),
+    "sunken": ("#f1ece3", "#10172a"),
+    "line": ("rgb(19 32 61 / 0.10)", "rgb(237 240 246 / 0.12)"),
+    "line-strong": ("rgb(19 32 61 / 0.20)", "rgb(237 240 246 / 0.22)"),
+    "ink": ("#13203d", "#edf0f6"),
+    "ink2": ("#46516a", "#b6bece"),
+    "muted": ("#5f687c", "#949eb2"),
+    "primary": ("#1e3f8f", "#a3b8ff"),
+    "on-primary": ("#ffffff", "#0c1222"),
+    "accent": ("#c8601f", "#d6762f"),
+    "accent-text": ("#a84a12", "#f5ab70"),
+    "up": ("#1f7a4f", "#6fd3a0"),
+    "down": ("#b3261e", "#ff8a80"),
+    "shadow": ("rgb(19 32 61 / 0.05)", "transparent"),
+    "edge": ("transparent", "rgb(255 255 255 / 0.05)"),
+    # Balken der Startseite (Palette mit dem dataviz-Validator geprüft)
+    "chart-ok": ("#2f5bc4", "#6f8ff0"),
+    "chart-warn": ("#c8601f", "#d6762f"),
+    "chart-track": ("#e3e8f2", "#26324f"),
+    "chart-muted": ("#8f8a80", "#707a90"),
 }
 
 
+def is_dark() -> bool:
+    return st.context.theme.type == "dark"
+
+
 def theme() -> charts.Theme:
-    """Diagrammfarben; die App ist bewusst immer hell (siehe .streamlit/config.toml)."""
-    return charts.get_theme(False)
+    """Diagrammfarben passend zum hellen oder dunklen Design der App."""
+    return charts.get_theme(is_dark())
+
+
+def css_tokens() -> str:
+    return " ".join(f"--po-{name}: light-dark({light}, {dark});" for name, (light, dark) in TOKENS.items())
 
 
 def inject_style() -> None:
-    t = TOKENS
     st.html(f"""<style>
-    :root {{ --po-card: {t["card"]}; --po-line: {t["line"]}; --po-ink: {t["ink"]}; --po-ink2: {t["ink2"]};
-             --po-muted: {t["muted"]}; --po-navy: {t["navy"]}; --po-gold: {t["gold"]}; --po-up: {t["up"]};
-             --po-down: {t["down"]}; }}
-    header[data-testid="stHeader"] {{ background: rgba(245, 243, 238, 0.94); border-bottom: 1px solid var(--po-line); }}
+    .stApp {{ {css_tokens()} }}
+    header[data-testid="stHeader"] {{
+        background: color-mix(in srgb, var(--po-bg) 94%, transparent); border-bottom: 1px solid var(--po-line);
+    }}
+    /* Bildmarke als Bild, Name als echter Text: so bleibt er im dunklen Design lesbar */
+    /* Auf der Startseite steckt das Logo in einem div, auf den Ebenen in einem Button zur Startseite */
+    :has(> img[data-testid="stHeaderLogo"]) {{
+        display: flex; align-items: center; gap: 0.75rem; width: auto !important; max-width: none !important;
+    }}
+    :has(> img[data-testid="stHeaderLogo"])::after {{
+        content: "Portfolio-Optimierer"; color: var(--po-ink); font-weight: 600; font-size: 1.05rem;
+        white-space: nowrap;
+    }}
+    @media (max-width: 767.98px) {{  /* schmal: nur die Bildmarke, damit das Menü oben rechts sichtbar bleibt */
+        :has(> img[data-testid="stHeaderLogo"])::after {{ display: none; }}
+    }}
     [data-testid="stTopNavLink"] p {{ font-weight: 500; }}
-    [data-testid="stMainBlockContainer"] {{ padding-top: 4.4rem; padding-bottom: 4rem; max-width: 1240px; }}
+    /* Schrift auf dem Hauptbutton: weiß auf Tiefblau, im dunklen Design dunkel auf Hellblau */
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primary"] p {{ color: var(--po-on-primary); }}
+    [data-testid="stMainBlockContainer"] {{ padding-top: 4.5rem; padding-bottom: 4rem; max-width: 1240px; }}
 
     /* Abschnitte als ruhige Karten */
     [data-testid="stExpander"] details {{
         background: var(--po-card); border: 1px solid var(--po-line); border-radius: 12px;
-        box-shadow: 0 1px 2px rgba(22, 25, 29, 0.04);
+        box-shadow: 0 1px 2px var(--po-shadow), inset 0 1px 0 var(--po-edge);
     }}
     [data-testid="stExpander"] summary {{ padding-top: 0.85rem; padding-bottom: 0.85rem; }}
-    [data-testid="stExpander"] summary p {{ font-weight: 600; font-size: 1.02rem; color: var(--po-ink); }}
-    [data-testid="stExpander"] summary:hover p {{ color: var(--po-navy); }}
-    [data-testid="stExpanderIcon"] {{ color: var(--po-gold); }}
+    [data-testid="stExpander"] summary p {{ font-weight: 600; font-size: 1rem; color: var(--po-ink); }}
+    [data-testid="stExpander"] summary:hover p {{ color: var(--po-primary); }}
+    [data-testid="stExpanderIcon"] {{ color: var(--po-accent); }}
 
     /* Kennzahlen: Karte, ruhige Beschriftung, kräftige Zahl */
     [data-testid="stMetric"] {{
-        background: #ffffff; border: 1px solid var(--po-line); border-radius: 12px; padding: 0.8rem 1rem 0.7rem;
+        background: var(--po-card); border: 1px solid var(--po-line); border-radius: 12px;
+        padding: 0.75rem 1rem; box-shadow: inset 0 1px 0 var(--po-edge);
     }}
-    [data-testid="stMetricLabel"] p {{ color: var(--po-ink2); font-size: 0.86rem; }}
+    [data-testid="stMetricLabel"] p {{ color: var(--po-ink2); font-size: 0.875rem; }}
     [data-testid="stMetricValue"] > div {{ font-weight: 600; letter-spacing: -0.01em; }}
 
     /* Depotwert oben auf der Portfolio-Seite */
-    .po-hero {{ margin: 0.2rem 0 0.4rem; }}
-    .po-hero .po-label {{ color: var(--po-ink2); font-size: 0.92rem; }}
-    .po-hero .po-value {{ color: var(--po-ink); font-size: 3.2rem; font-weight: 600; line-height: 1.12;
-                         letter-spacing: -0.02em; }}
-    .po-hero .po-sub {{ color: var(--po-ink2); font-size: 0.95rem; margin-top: 0.3rem; }}
-    .po-hero .po-sub span + span::before {{ content: "·"; color: var(--po-muted); margin: 0 0.55rem; }}
+    .po-hero {{ margin: 0.25rem 0 0.5rem; }}
+    .po-hero .po-label {{ color: var(--po-ink2); font-size: 0.875rem; }}
+    .po-hero .po-value {{ color: var(--po-ink); font-size: 2.986rem; font-weight: 600; line-height: 1.1;
+                         letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }}
+    .po-hero .po-sub {{ color: var(--po-ink2); font-size: 0.875rem; line-height: 1.5; margin-top: 0.25rem; }}
+    .po-hero .po-sub span + span::before {{ content: "·"; color: var(--po-muted); margin: 0 0.5rem; }}
     .po-up {{ color: var(--po-up); font-weight: 600; }}
     .po-down {{ color: var(--po-down); font-weight: 600; }}
 
-    h1, h2, h3, h4 {{ color: var(--po-ink); letter-spacing: -0.01em; }}
+    h1, h2, h3, h4 {{ color: var(--po-ink); letter-spacing: -0.01em; text-wrap: balance; }}
     </style>""")
 
 

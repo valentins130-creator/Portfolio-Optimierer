@@ -6,15 +6,20 @@ Eine Streamlit-App für das eigene Depot: Käufe und Verkäufe mit Datum erfasse
 
 ## Aufbau
 
-Die App hat drei Ebenen, die oben in der Leiste anklickbar sind. Jede Ebene besteht aus aufklappbaren Abschnitten; ein Abschnitt rechnet erst, wenn er geöffnet ist. Geöffnete Abschnitte und Eingaben bleiben beim Wechsel der Ebene erhalten.
+Die App öffnet mit der **Startseite**: Sie zeigt das Klumpenrisiko des gewählten Depots jetzt und nach der Umschichtung, die die Ebene Lösungen mit ihren Standardeinstellungen vorschlägt, dazu drei Fragen zum Depot und Einstiege in alle Ebenen. Solange das eigene Depot leer ist, rechnet sie mit dem fiktiven Beispieldepot der Offline-Demo.
+
+Dahinter liegen drei Ebenen, die oben in der Leiste anklickbar sind. Jede Ebene besteht aus aufklappbaren Abschnitten; ein Abschnitt rechnet erst, wenn er geöffnet ist. Geöffnete Abschnitte und Eingaben bleiben beim Wechsel der Ebene erhalten.
 
 | Ebene | Abschnitte |
 |---|---|
+| **Start** | Klumpenrisiko jetzt und nach Umschichtung · Problem und Lösung · Funktionen · Impressum und Datenschutz (Vorlagen) |
 | **Portfolio** | Transaktion erfassen · Positionen · Transaktionen · Wertentwicklung · Kursdaten und Kennzahlen · Aufteilung nach Sektoren und Währungen |
 | **Analysen** | Klumpenrisiko · Markowitz – Efficient Frontier · Monte Carlo · Schätzfehler |
 | **Lösungen** | Umschichtung · Absicherung |
 
 Die Kopfzeile darüber gilt für alle Ebenen: Portfolio auswählen, **Verwalten** (Neu, Import/Export, Löschen, Papierkorb) und **Einstellungen**. Dort werden Marktdaten (Yahoo Finance oder Offline-Demo), die Länge der Historie für die Analysen, die Schätzer (historischer Mittelwert oder Bayes-Stein, Stichproben-Kovarianz oder Ledoit-Wolf), der risikolose Zins und die Gewichtsgrenzen (long-only, Höchstgewichte, Leerverkäufe oder klassischer unbeschränkter Markowitz) eingestellt.
+
+**Design.** Warmes Off-White, Tiefblau für Aktionen, dezentes Orange für Hinweise, Schrift Plus Jakarta Sans (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
 
 ## Schnellstart
 
@@ -134,12 +139,13 @@ Im Szenario mit identischen Assets ist das wahre Optimum 1/N. Trotzdem versprich
 ## Projektstruktur
 
 ```
-app.py                         Einstieg: Kopfzeile und Navigation (Portfolio · Analysen · Lösungen)
-views/                         Die drei Seiten der Navigation
+app.py                         Einstieg: Kopfzeile und Navigation (Start · Portfolio · Analysen · Lösungen)
+views/                         Die Seiten der Navigation
 ui/
   header.py                    Titel, Portfolio-Auswahl, Neu, Export/Import, Löschen, Einstellungen
   state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext
-  common.py                    Farben, aufklappbare Abschnitte, Meldungen
+  common.py                    Farben für hell und dunkel, aufklappbare Abschnitte, Meldungen
+  start_view.py                Startseite: Klumpenrisiko jetzt und nach Umschichtung, Einstiege in die Ebenen
   portfolio_view.py            Ebene Portfolio
   analysis_view.py             Ebene Analysen
   solutions_view.py            Ebene Lösungen
@@ -158,8 +164,7 @@ portfolio_optimizer/
   rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
-landing/                       Statische Landingpage (HTML, CSS, JavaScript), siehe landing/README.md
-static/                        Logo und Schrift (IBM Plex Sans, SIL Open Font License), von der App ausgeliefert
+static/                        Bildmarke und Schrift (Plus Jakarta Sans, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
 ```
 

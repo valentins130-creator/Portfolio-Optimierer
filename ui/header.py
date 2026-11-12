@@ -28,12 +28,33 @@ from ui.state import (
 YEARS = [1, 2, 3, 5, 10, 15, 20]
 
 
+def _provider_changed(widget_key: str) -> None:
+    st.session_state["set_provider"] = st.session_state[widget_key]
+    reset_portfolio_inputs()
+
+
+def use_provider(provider: str) -> None:
+    """Marktdaten umschalten, ohne die Einstellungen zu öffnen (z. B. von der Startseite aus).
+
+    Maßgeblich ist der Sitzungswert ``set_provider``. Der Schalter in den Einstellungen bekommt dabei
+    einen neuen Schlüssel: Solange das Menü geschlossen ist, kennt der Browser den neuen Wert sonst
+    nicht und schickte beim nächsten Seitenwechsel den alten zurück.
+    """
+    st.session_state["set_provider"] = provider
+    st.session_state["set_provider_version"] = st.session_state.get("set_provider_version", 0) + 1
+    reset_portfolio_inputs()
+
+
 def _settings_popover() -> Settings:
     st.markdown("**Daten**")
-    provider = st.radio("Marktdaten", list(PROVIDERS), format_func=PROVIDERS.get, key="set_provider",
-                        horizontal=True, on_change=reset_portfolio_inputs,
-                        help="Die Offline-Demo nutzt fiktive Wertpapiere mit simulierten Kursen – zum Ausprobieren "
-                             "ohne Internet.")
+    options = list(PROVIDERS)
+    current = st.session_state.setdefault("set_provider", options[0])
+    widget_key = f"set_provider_{st.session_state.get('set_provider_version', 0)}"
+    st.radio("Marktdaten", options, index=options.index(current), format_func=PROVIDERS.get, key=widget_key,
+             horizontal=True, on_change=_provider_changed, args=(widget_key,),
+             help="Die Offline-Demo nutzt fiktive Wertpapiere mit simulierten Kursen – zum Ausprobieren "
+                  "ohne Internet.")
+    provider = st.session_state["set_provider"]
     years = st.select_slider("Historie für Analysen", YEARS, value=5, key="set_years",
                              format_func=lambda y: f"{y} Jahr" if y == 1 else f"{y} Jahre",
                              help="Zeitraum für Risiko-, Hedge- und Optimierungsrechnungen. Die Wertentwicklung "
@@ -112,7 +133,7 @@ def _restore(provider: str, path: str) -> None:
     flash(f"„{portfolio.name}“ wiederhergestellt.")
 
 
-def _load_example(provider: str) -> None:
+def load_example(provider: str) -> None:
     set_portfolio(provider, example_portfolio(provider))
     _show_entry(False)
     flash("Beispieldepot geladen.")
@@ -172,7 +193,7 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
         st.button("Anlegen", on_click=_create, args=(provider,), type="primary")
         if provider == "demo":
             st.divider()
-            st.button("Beispieldepot laden", on_click=_load_example, args=(provider,),
+            st.button("Beispieldepot laden", on_click=load_example, args=(provider,),
                       help="Fiktives Depot mit Käufen über drei Jahre, Tech-Übergewicht und hohem Dollar-Anteil.")
     with transfer:
         st.download_button("Als JSON exportieren", portfolio.to_json(), file_name=f"{portfolio.name}.json",

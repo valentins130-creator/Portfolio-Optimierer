@@ -2,7 +2,7 @@
 
 Start: ``python -m streamlit run app.py`` (oder einfach ``python app.py``)
 
-Drei Ebenen in der oberen Leiste – Portfolio, Analysen, Lösungen. Jede Seite
+Oben die Startseite und drei Ebenen – Portfolio, Analysen, Lösungen. Jede Ebene
 besteht aus aufklappbaren Abschnitten, die erst beim Aufklappen rechnen.
 """
 
@@ -42,7 +42,8 @@ st.set_page_config(page_title="Portfolio-Optimierer", page_icon=str(HERE / "stat
                    initial_sidebar_state="collapsed")
 
 PAGES = [
-    st.Page("views/portfolio.py", title="Portfolio", default=True),
+    st.Page("views/start.py", title="Start", default=True),
+    st.Page("views/portfolio.py", title="Portfolio"),
     st.Page("views/analysen.py", title="Analysen"),
     st.Page("views/loesungen.py", title="Lösungen"),
 ]
@@ -50,7 +51,7 @@ PAGES = [
 
 def main() -> None:
     common.keep_page_state()
-    st.logo(str(HERE / "static" / "logo.svg"), size="large")
+    st.logo(str(HERE / "static" / "mark.svg"), size="large")  # Name folgt als Text (ui/common.py)
     th = common.theme()
     common.inject_style()
     page = st.navigation(PAGES, position="top")

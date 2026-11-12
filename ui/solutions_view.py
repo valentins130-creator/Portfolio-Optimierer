@@ -47,7 +47,8 @@ def render(run: RunState) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _prices_for(ctx: PortfolioContext, symbols, infos) -> pd.DataFrame:
+def prices_for(ctx: PortfolioContext, symbols, infos) -> pd.DataFrame:
+    """Kurse im Analysezeitraum, auch für Wertpapiere, die erst durch eine Umschichtung dazukommen."""
     have = [s for s in symbols if s in ctx.window.columns]
     extra = [s for s in symbols if s not in ctx.window.columns]
     if not extra:
@@ -56,23 +57,36 @@ def _prices_for(ctx: PortfolioContext, symbols, infos) -> pd.DataFrame:
     return pd.concat([ctx.window[have], px], axis=1)
 
 
+def limits_plan(ctx: PortfolioContext, report: conc.ConcentrationReport, limits: conc.Limits,
+                use_world: bool = True) -> tuple[pd.Series, dict, pd.Series, dict]:
+    """Zielgewichte, die die Klumpenrisiko-Grenzen mit möglichst wenig Umschichtung einhalten.
+
+    Liefert Zielgewichte, Stammdaten und Kurse (inklusive eines Welt-ETFs als Ausgleich, falls
+    erlaubt) sowie den Überhang, der sich mit den vorhandenen Positionen nicht abbauen lässt.
+    """
+    infos = dict(ctx.infos)
+    prices = ctx.quotes["price"].copy()
+    current = ctx.weights.copy()
+    world = get_provider(ctx.provider).world_fund
+    if use_world and world not in current.index:
+        try:
+            infos[world] = security_info(ctx.provider, world)
+            px = prices_eur(ctx.provider, (world,), (infos[world].currency,), ctx.start, ctx.end)
+            prices[world] = float(px[world].dropna().iloc[-1])
+            current[world] = 0.0
+        except Exception:  # ohne Welt-ETF weiterrechnen
+            infos.pop(world, None)
+    target, remaining = rb.closest_to_limits(current, infos, limits, report.clusters)
+    return target, infos, prices, remaining
+
+
 def _target_weights(run: RunState, goal: str, report, use_world: bool) -> tuple[pd.Series | None, dict]:
     """Zielgewichte je Symbol und Zusatzinfos (Kurse, Stammdaten) für neue Positionen."""
     ctx, est, bounds = run.ctx, run.est, run.bounds
     infos = dict(ctx.infos)
     prices = ctx.quotes["price"].copy()
     if goal == "limits":
-        current = ctx.weights.copy()
-        world = get_provider(ctx.provider).world_fund
-        if use_world and world not in current.index:
-            try:
-                infos[world] = security_info(ctx.provider, world)
-                px = prices_eur(ctx.provider, (world,), (infos[world].currency,), ctx.start, ctx.end)
-                prices[world] = float(px[world].dropna().iloc[-1])
-                current[world] = 0.0
-            except Exception:  # ohne Welt-ETF weiterrechnen
-                infos.pop(world, None)
-        target, remaining = rb.closest_to_limits(current, infos, current_limits(), report.clusters)
+        target, infos, prices, remaining = limits_plan(ctx, report, current_limits(), use_world)
         if remaining:
             st.warning(
                 "Mit den vorhandenen Positionen lassen sich nicht alle Grenzen einhalten. Der Vorschlag kommt ihnen "
@@ -151,7 +165,7 @@ def rebalancing(run: RunState, report: conc.ConcentrationReport) -> None:
     show_chart(charts.comparison_chart(labels, tr.loc[order, "weight_before"].to_numpy(),
                                        tr.loc[order, "weight_after"].to_numpy(), theme, "Gewicht"))
     after = tr["weight_after"][tr["weight_after"] > 0]  # bezogen auf den Depotwert inklusive Restliquidität
-    after_report = conc.analyze(after, infos, hg.weekly_returns(_prices_for(ctx, after.index, infos)),
+    after_report = conc.analyze(after, infos, hg.weekly_returns(prices_for(ctx, after.index, infos)),
                                 current_limits())
     if goal == "limits":
         if after_report.exceeded:

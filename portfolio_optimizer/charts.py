@@ -38,13 +38,13 @@ class Theme:
 LIGHT = Theme(
     dark=False,
     series=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"),
-    surface="#fcfbf8",  # Kartenfarbe der App; Palette dagegen geprüft
-    ink="#0b0b0b",
-    ink2="#52514e",
-    muted="#898781",
-    grid="#e1e0d9",
-    axis="#c3c2b7",
-    neutral="#f0efec",
+    surface="#fffdf9",  # Kartenfarbe der App; Palette dagegen geprüft
+    ink="#13203d",
+    ink2="#46516a",
+    muted="#5f687c",
+    grid="#e6e3dc",
+    axis="#cdc9c0",
+    neutral="#f1ece3",
     pos=("#f0a09f", "#b8302f"),
     neg=("#86b6ef", "#184f95"),
 )
@@ -52,18 +52,18 @@ LIGHT = Theme(
 DARK = Theme(
     dark=True,
     series=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"),
-    surface="#1a1a19",
-    ink="#f0efec",
-    ink2="#c3c2b7",
-    muted="#898781",
-    grid="#2c2c2a",
-    axis="#383835",
-    neutral="#383835",
+    surface="#141c30",  # Kartenfarbe im dunklen Design; Palette dagegen geprüft
+    ink="#edf0f6",
+    ink2="#b6bece",
+    muted="#949eb2",
+    grid="#232c41",
+    axis="#323c55",
+    neutral="#2a3349",
     pos=("#8f3534", "#e66767"),
     neg=("#1c5cab", "#5598e7"),
 )
 
-FONT = '"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+FONT = '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
 # Feste Rollen der Portfolios über alle Diagramme hinweg. Das eigene Depot ist der
 # Ausgangspunkt und erscheint deshalb zurückhaltend in dunklem Grau.

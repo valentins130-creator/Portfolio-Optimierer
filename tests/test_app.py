@@ -1,7 +1,8 @@
 """Rauchtests der Streamlit-Oberfläche mit ``streamlit.testing``.
 
-Die App hat drei Ebenen (Portfolio, Analysen, Lösungen) mit aufklappbaren Abschnitten,
-die erst rechnen, wenn sie geöffnet sind. Die Tests öffnen sie über ihre Schlüssel.
+Die App öffnet mit der Startseite; dahinter liegen drei Ebenen (Portfolio, Analysen, Lösungen)
+mit aufklappbaren Abschnitten, die erst rechnen, wenn sie geöffnet sind. Die Tests öffnen sie
+über ihre Schlüssel.
 """
 
 import json
@@ -20,6 +21,7 @@ from portfolio_optimizer.formatting import num
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
 PAGES = {
+    "start": ("views/start.py", ()),
     "portfolio": ("views/portfolio.py", ("sec_add", "sec_positions", "sec_transactions", "sec_performance",
                                          "sec_market", "sec_allocation")),
     "analysen": ("views/analysen.py", ("sec_cluster", "sec_frontier", "sec_mc", "sec_error")),
@@ -50,6 +52,22 @@ def _hero(at) -> str:
     return next((e.proto.body for e in at.html if "po-hero" in e.proto.body and "<style>" not in e.proto.body), "")
 
 
+def _start_card(at) -> str:
+    """HTML der Karte „Klumpenrisiko“ auf der Startseite (Kennzahlen, Balken, Vorschlag)."""
+    return "".join(b for b in (e.proto.body for e in at.html)
+                   if ("po-stats" in b or "po-xray" in b) and "<style>" not in b)
+
+
+def _app(tmp_path, monkeypatch, provider: str, page: str = "portfolio") -> AppTest:
+    """App mit Portfolios in einem temporären Ordner, geöffnet auf der gewünschten Seite."""
+    monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
+    at = AppTest.from_file(APP, default_timeout=240)
+    at.session_state["set_provider"] = provider
+    if page != "start":  # die Startseite ist die Standardseite
+        at.switch_page(PAGES[page][0])
+    return at.run()
+
+
 def _saved(tmp_path, name="mein-depot", provider="demo"):
     folder = tmp_path / "demo" if provider == "demo" else tmp_path
     return json.loads((folder / f"{name}.json").read_text(encoding="utf-8"))
@@ -57,11 +75,8 @@ def _saved(tmp_path, name="mein-depot", provider="demo"):
 
 @pytest.fixture
 def demo_app(tmp_path, monkeypatch):
-    """App mit der Offline-Demo; Portfolios landen in einem temporären Ordner."""
-    monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
-    at = AppTest.from_file(APP, default_timeout=240)
-    at.session_state["set_provider"] = "demo"
-    return at.run()
+    """App mit der Offline-Demo auf der Ebene Portfolio; Portfolios landen in einem temporären Ordner."""
+    return _app(tmp_path, monkeypatch, "demo")
 
 
 @pytest.fixture
@@ -69,6 +84,48 @@ def example_app(demo_app):
     _button(demo_app, "Beispieldepot laden").click().run()
     _assert_clean(demo_app)
     return demo_app
+
+
+# ---------------------------------------------------------------------------
+# Startseite
+# ---------------------------------------------------------------------------
+
+
+def test_start_page_opens_first_and_shows_the_example_while_the_depot_is_empty(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "demo", page="start")
+    _assert_clean(at)
+    assert any("Sieh, wo dein Depot wirklich Risiko trägt." in e.proto.body for e in at.html)
+    card = _start_card(at)
+    assert "Beispieldepot" in card and "Dein Depot ist noch leer." in card
+    assert "<dt>Grenzen überschritten</dt><dd>4</dd>" in card  # Technologie und drei Einzelwerte
+    assert {"Depot erfassen", "Beispieldepot laden"} <= {b.label for b in at.button}
+    at.segmented_control(key="start_view").set_value("Nach Umschichtung").run()
+    _assert_clean(at)
+    card = _start_card(at)
+    assert "<dt>Grenzen überschritten</dt><dd>0</dd>" in card
+    assert "Danach hält das Depot alle Grenzen ein." in card
+
+
+def test_start_page_analyses_the_own_depot_and_leads_to_the_analysis(example_app):
+    at = _open(example_app, "start")
+    _assert_clean(at)
+    card = _start_card(at)
+    assert "noch leer" not in card and "fiktive Werte" not in card and "10 Positionen" in card
+    _button(at, "Depot prüfen").click().run()
+    _assert_clean(at)
+    assert at.session_state["sec_cluster"] is True
+    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
+
+
+def test_offline_demo_can_be_tried_from_the_start_page(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "yahoo", page="start")
+    _button(at, "Offline-Demo ausprobieren").click().run()
+    _assert_clean(at)
+    assert at.session_state["set_provider"] == "demo"
+    at = _open(at, "analysen")
+    _assert_clean(at)
+    assert at.session_state["set_provider"] == "demo"  # bleibt beim Seitenwechsel
+    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
 # ---------------------------------------------------------------------------
@@ -304,10 +361,7 @@ def fake_yfinance(monkeypatch):
 
 
 def test_yahoo_portfolio_uses_live_prices(fake_yfinance, tmp_path, monkeypatch):
-    monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
-    at = AppTest.from_file(APP, default_timeout=240)
-    at.session_state["set_provider"] = "yahoo"
-    at.run()
+    at = _app(tmp_path, monkeypatch, "yahoo")
     for i, (query, shares) in enumerate([("Apple", 10.0), ("SAP", 20.0)]):
         if i:
             at.segmented_control(key="tx_mode").set_value("Suchen").run()
@@ -325,16 +379,14 @@ def test_yahoo_portfolio_uses_live_prices(fake_yfinance, tmp_path, monkeypatch):
     assert positions.at["AAPL", "Ø Kaufkurs"] == pytest.approx(25.0)
     assert positions.at["SAP.DE", "Stück"] == pytest.approx(20.0)
     assert any("4:1" in c.value for c in at.caption)
-    for page in ("analysen", "loesungen"):
+    for page in ("analysen", "loesungen", "start"):
         _open(at, page)
         _assert_clean(at)
+    assert "Grenzen überschritten" in _start_card(at) and "Beispieldepot" not in _start_card(at)
 
 
 def test_yahoo_suggests_actual_close_not_dividend_adjusted(fake_yfinance, tmp_path, monkeypatch):
-    monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
-    at = AppTest.from_file(APP, default_timeout=240)
-    at.session_state["set_provider"] = "yahoo"
-    at.run()
+    at = _app(tmp_path, monkeypatch, "yahoo")
     when = date.today() - timedelta(days=500)
     at.text_input(key="tx_query").set_value("SAP").run()
     at.date_input(key="tx_date").set_value(when).run()

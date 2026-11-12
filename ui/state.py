@@ -403,9 +403,10 @@ def _quotes(provider: str, held: dict[str, SecurityInfo], prices: pd.DataFrame) 
     return pd.DataFrame.from_dict(rows, orient="index")[["price", "stand", "live"]]
 
 
-def load_context(settings: Settings) -> PortfolioContext:
+def load_context(settings: Settings, portfolio: Portfolio | None = None) -> PortfolioContext:
+    """Bestände, Kurse und Bewertung des gewählten Portfolios (oder eines übergebenen, etwa des Beispieldepots)."""
     provider = settings.provider
-    portfolio = current_portfolio(provider)
+    portfolio = current_portfolio(provider) if portfolio is None else portfolio
     securities = portfolio.securities
     dated = [t.date for t in portfolio.transactions if t.date]
     history_start = min([settings.start, *dated])

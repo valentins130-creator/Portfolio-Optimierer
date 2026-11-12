@@ -1,46 +1,61 @@
-# Helles Design: warmer Papierton, Navy als Akzent, Schrift IBM Plex Sans (liegt in
-# static/fonts und wird von der App selbst ausgeliefert – ohne Google-Server).
-# Feinheiten wie Karten und Kennzahlen setzt ui/common.py.
+# Design der App: warmes Off-White, Tiefblau für Aktionen, dezentes Orange für Hinweise,
+# Schrift Plus Jakarta Sans (liegt in static/fonts und wird von der App selbst ausgeliefert –
+# ohne Google-Server). Hell und dunkel: Die App folgt der Systemeinstellung; umschalten lässt
+# sich oben rechts im Menü (⋮ → System, Light, Dark). Karten, Kennzahlen und die Startseite
+# gestaltet ui/common.py mit denselben Farben.
 
 [server]
 enableStaticServing = true
 
 [theme]
-base = "light"
-primaryColor = "#1f3a5f"
-backgroundColor = "#f5f3ee"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#16191d"
-linkColor = "#1f3a5f"
-borderColor = "#dcd6ca"
-showWidgetBorder = true
-dataframeHeaderBackgroundColor = "#f1eee7"
+font = "Plus Jakarta Sans, system-ui, -apple-system, Segoe UI, sans-serif"
+headingFont = "Plus Jakarta Sans, system-ui, -apple-system, Segoe UI, sans-serif"
+baseFontSize = 16
 baseRadius = "0.5rem"
-font = "IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif"
-baseFontSize = 15
+buttonRadius = "0.375rem"
+showWidgetBorder = true
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontWeight = 600
 
 [[theme.fontFaces]]
-family = "IBM Plex Sans"
-url = "app/static/fonts/ibm-plex-sans-latin-400-normal.woff2"
-weight = 400
+family = "Plus Jakarta Sans"
+url = "app/static/fonts/plus-jakarta-sans-latin-wght-normal.woff2"
+weight = "200 800"
 
-[[theme.fontFaces]]
-family = "IBM Plex Sans"
-url = "app/static/fonts/ibm-plex-sans-latin-500-normal.woff2"
-weight = 500
+[theme.light]
+primaryColor = "#1e3f8f"
+backgroundColor = "#f8f5ef"
+secondaryBackgroundColor = "#fffdf9"
+textColor = "#13203d"
+linkColor = "#1e3f8f"
+borderColor = "#d9d6cf"
+dataframeHeaderBackgroundColor = "#f1ece3"
+codeBackgroundColor = "#f1ece3"
+greenColor = "#1f7a4f"
+redColor = "#b3261e"
+orangeColor = "#c8601f"
 
-[[theme.fontFaces]]
-family = "IBM Plex Sans"
-url = "app/static/fonts/ibm-plex-sans-latin-600-normal.woff2"
-weight = 600
+[theme.dark]
+primaryColor = "#a3b8ff"
+backgroundColor = "#0c1222"
+secondaryBackgroundColor = "#141c30"
+textColor = "#edf0f6"
+linkColor = "#a3b8ff"
+borderColor = "#2a3247"
+dataframeHeaderBackgroundColor = "#10172a"
+codeBackgroundColor = "#10172a"
+greenColor = "#6fd3a0"
+redColor = "#ff8a80"
+orangeColor = "#d6762f"
 
 [global]
 # Seitenübergreifend behaltene Eingaben (ui/common.keep_page_state) sind gewollt
 disableWidgetStateDuplicationWarning = true
 
 [client]
-# Kein "Deploy"-Knopf und keine Entwickleroptionen im Menü
-toolbarMode = "minimal"
+# Menü oben rechts nur mit den Punkten für Nutzer (hell/dunkel, Drucken),
+# ohne "Deploy"-Knopf und Entwickleroptionen
+toolbarMode = "viewer"
 
 [browser]
 gatherUsageStats = false
