@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impressum · Portfolio-Optimierer</title>
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f8f5ef" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c1222" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg transform='scale(1.0667)'%3E%3Crect width='30' height='30' rx='7.5' fill='%231f3a5f'/%3E%3Cpath d='M7.5 23 C 8.6 14.6 13.6 9.4 23 8' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12.4' cy='12.6' r='3.3' fill='%23d2a64b' stroke='%231f3a5f' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("po-theme");
+        if (saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
+      } catch (e) {}
+    })();
+  </script>
+  <script src="script.js" defer></script>
+</head>
+<body id="top">
+  <svg class="sr-only" aria-hidden="true" focusable="false">
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><g transform="scale(1.0667)"><rect width="30" height="30" rx="7.5" fill="#1f3a5f"/><path d="M7.5 23 C 8.6 14.6 13.6 9.4 23 8" stroke="#ffffff" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="12.4" cy="12.6" r="3.3" fill="#d2a64b" stroke="#1f3a5f" stroke-width="1.6"/></g></svg>
+        <span translate="no">Portfolio-Optimierer</span>
+      </a>
+      <div class="header-actions">
+        <span class="tip">
+          <button class="icon-btn" type="button" data-theme-toggle aria-label="Dunkles Design aktivieren">
+            <svg class="icon" data-theme-icon="moon" aria-hidden="true" focusable="false"><use href="#i-moon"/></svg>
+            <svg class="icon" data-theme-icon="sun" aria-hidden="true" focusable="false" hidden><use href="#i-sun"/></svg>
+          </button>
+          <span class="tooltip" role="tooltip" aria-hidden="true" data-theme-tip>Dunkles Design aktivieren</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main id="inhalt">
+    <article class="legal" aria-labelledby="legal-title">
+      <a class="back-link" href="index.html"><svg class="icon icon-s" aria-hidden="true" focusable="false"><use href="#i-back"/></svg>Zur Startseite</a>
+      <h1 id="legal-title">Impressum</h1>
+      <p class="template-note">Vorlage: Ersetze alle markierten Angaben und lass die Seite vor der Veröffentlichung rechtlich prüfen.</p>
+
+      <h2>Angaben gemäß § 5 DDG</h2>
+      <address>
+        <mark>Vor- und Nachname oder Firma</mark><br>
+        <mark>Straße und Hausnummer</mark><br>
+        <mark>Postleitzahl und Ort</mark>
+      </address>
+
+      <h2>Kontakt</h2>
+      <p>E-Mail: <a href="mailto:kontakt@example.com"><mark>kontakt@example.com</mark></a></p>
+
+      <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+      <address>
+        <mark>Vor- und Nachname</mark><br>
+        <mark>Anschrift wie oben</mark>
+      </address>
+
+      <h2>Keine Anlageberatung</h2>
+      <p>Der <span translate="no">Portfolio-Optimierer</span> ist ein Analyse- und Lernwerkzeug. Die Inhalte dieser Seite und der App sind keine Anlageberatung und keine Aufforderung zum Kauf oder Verkauf von Wertpapieren. Alle Auswertungen beruhen auf historischen Daten und berücksichtigen weder Transaktionskosten noch Steuern. Die Beispielwerte stammen aus einer Offline-Demo mit fiktiven Wertpapieren.</p>
+
+      <h2>Haftung für Links</h2>
+      <p>Für Inhalte verlinkter externer Seiten sind ausschließlich deren Betreiber verantwortlich. Bei Bekanntwerden von Rechtsverletzungen entfernen wir entsprechende Links umgehend.</p>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-bottom">
+        <p>© <span data-year>2026</span> <span translate="no">Portfolio-Optimierer</span></p>
+        <ul class="footer-links">
+          <li><a href="index.html">Startseite</a></li>
+          <li><a href="datenschutz.html">Datenschutz</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
