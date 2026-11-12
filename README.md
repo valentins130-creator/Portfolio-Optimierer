@@ -158,6 +158,7 @@ portfolio_optimizer/
   rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
+landing/                       Statische Landingpage (HTML, CSS, JavaScript), siehe landing/README.md
 static/                        Logo und Schrift (IBM Plex Sans, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
 ```

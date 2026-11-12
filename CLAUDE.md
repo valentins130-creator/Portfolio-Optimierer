@@ -5,6 +5,7 @@ Streamlit-App zur Portfolio-Analyse und -Optimierung. Antworten und UI-Texte auf
 - Start: `python -m streamlit run app.py`
 - Tests: `pip install -r requirements-dev.txt` und dann `pytest` (läuft auch in der CI)
 - Aufbau: Rechenlogik in `portfolio_optimizer/`, Oberfläche in `ui/` (Styles in `ui/common.py`), Seiten in `views/`, Theme in `.streamlit/config.toml`
+- Landingpage (statisches HTML/CSS/JS) in `landing/`, Hinweise in `landing/README.md`
 
 ## Design- und UI-Arbeit
 
