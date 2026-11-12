@@ -1,0 +1,15 @@
+# Nur was die App zur Laufzeit braucht; private Depots und Kurse kommen nie ins Image
+.git
+.github
+.claude
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+portfolios
+docs
+tests
+.streamlit/secrets.toml
+Dockerfile
+.dockerignore

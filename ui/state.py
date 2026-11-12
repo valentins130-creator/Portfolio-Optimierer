@@ -37,8 +37,14 @@ ANALYSIS_LIMIT = 24  # so viele Positionen nutzen die Analysen höchstens
 
 
 def _root() -> Path:
-    """Ablageort: Ordner ``portfolios`` neben der App oder die Umgebungsvariable ``PORTFOLIO_DIR``."""
-    return Path(os.environ.get("PORTFOLIO_DIR") or Path(__file__).resolve().parents[1] / "portfolios")
+    """Ablageort der Portfolios und Kurse.
+
+    Vorrang hat die Umgebungsvariable ``PORTFOLIO_DIR``. Auf Railway nimmt die App das angehängte
+    Volume (Railway setzt ``RAILWAY_VOLUME_MOUNT_PATH``), damit die Depots einen Neustart überstehen.
+    Sonst der Ordner ``portfolios`` neben der App.
+    """
+    folder = os.environ.get("PORTFOLIO_DIR") or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    return Path(folder) if folder else Path(__file__).resolve().parents[1] / "portfolios"
 
 
 def store(provider: str) -> PortfolioStore:

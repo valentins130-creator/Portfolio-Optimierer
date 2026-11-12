@@ -39,6 +39,25 @@ Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Te
 - **Kurzer Pfad:** Windows begrenzt Dateipfade standardmäßig auf 260 Zeichen, und Streamlit enthält tief verschachtelte Dateien. Liegt das Projekt in einem langen Ordnerpfad (etwa tief in OneDrive), scheitert `pip install` in einer `.venv` im Projektordner. Abhilfe: das Projekt an einen kurzen Pfad außerhalb von OneDrive legen, z. B. `C:\Projekte\Portfolio-Optimierer`, oder [lange Pfade in Windows aktivieren](https://learn.microsoft.com/de-de/windows/win32/fileio/maximum-file-path-limitation).
 - **`ModuleNotFoundError: No module named '…'`:** Im verwendeten Interpreter fehlen Pakete. Im Terminal von VS Code `python -m pip install -r requirements.txt` ausführen.
 
+## Online betreiben (Railway)
+
+Die App läuft auch im Internet, zum Beispiel auf [Railway](https://railway.com). Das Repository enthält dafür ein `Dockerfile`; Railway erkennt es und baut die App daraus. Den Port gibt Railway in `$PORT` vor, das `Dockerfile` reicht ihn an Streamlit weiter.
+
+1. **Projekt anlegen:** In Railway **New Project → Deploy from GitHub repo** und dieses Repository wählen (Branch `main`).
+2. **Passwort setzen:** Im Service unter **Variables** die Variable `APP_PASSWORD` mit einem langen Passwort anlegen. Ohne sie ist die App für jeden mit dem Link offen, samt allen Depots.
+3. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Die App speichert Depots und Kurse automatisch dort, weil Railway dann `RAILWAY_VOLUME_MOUNT_PATH` setzt. Ohne Volume sind sie nach jedem Neustart weg.
+4. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
+5. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
+
+Nach jedem Push auf den gewählten Branch baut Railway neu. Die Anmeldung gilt je Browser-Tab; nach dem Neuladen fragt die App erneut nach dem Passwort. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
+
+Lokal lässt sich der Container so testen:
+
+```bash
+docker build -t portfolio-optimierer .
+docker run -p 8501:8501 -e APP_PASSWORD=test portfolio-optimierer
+```
+
 ## Portfolio
 
 **Marktdaten.** Unter **Einstellungen** stehen Yahoo Finance oder eine **Offline-Demo** mit fiktiven Wertpapieren zur Wahl. In der Demo lädt **Verwalten → Neu → Beispieldepot laden** ein Depot mit Käufen über drei Jahre, einem Teilverkauf und einem Aktiensplit 4:1. Yahoo-Daten kommen über [yfinance](https://github.com/ranaroussi/yfinance), eine inoffizielle Schnittstelle, für die die Nutzungsbedingungen von Yahoo gelten.
@@ -140,8 +159,10 @@ Im Szenario mit identischen Assets ist das wahre Optimum 1/N. Trotzdem versprich
 
 ```
 app.py                         Einstieg: Kopfzeile und Navigation (Start · Portfolio · Analysen · Lösungen)
+Dockerfile                     Container für den Betrieb im Internet (z. B. Railway)
 views/                         Die Seiten der Navigation
 ui/
+  auth.py                      Passwortschutz, wenn APP_PASSWORD gesetzt ist
   header.py                    Titel, Portfolio-Auswahl, Neu, Export/Import, Löschen, Einstellungen
   state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext
   common.py                    Farben für hell und dunkel, aufklappbare Abschnitte, Meldungen

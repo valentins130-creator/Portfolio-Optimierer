@@ -128,6 +128,32 @@ def test_offline_demo_can_be_tried_from_the_start_page(tmp_path, monkeypatch):
     assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
+def test_password_protects_the_app_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "geheim")
+    at = _app(tmp_path, monkeypatch, "demo", page="start")
+    _assert_clean(at)
+    assert at.text_input(key="login_password").label == "Passwort"
+    assert not _start_card(at)  # ohne Anmeldung nichts von der App
+    at.text_input(key="login_password").set_value("falsch")
+    _button(at, "Anmelden").click().run()
+    assert any("Das Passwort passt nicht" in e.value for e in at.error)
+    assert not _start_card(at)
+    at.text_input(key="login_password").set_value("geheim")
+    _button(at, "Anmelden").click().run()
+    _assert_clean(at)
+    assert "Grenzen überschritten" in _start_card(at)
+
+
+def test_portfolios_are_stored_on_the_railway_volume(tmp_path, monkeypatch):
+    from ui import state
+
+    monkeypatch.delenv("PORTFOLIO_DIR", raising=False)
+    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(tmp_path))
+    assert state._root() == tmp_path
+    monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path / "eigen"))  # ausdrücklich gesetzt hat Vorrang
+    assert state._root() == tmp_path / "eigen"
+
+
 # ---------------------------------------------------------------------------
 # Ebene 1: Portfolio
 # ---------------------------------------------------------------------------

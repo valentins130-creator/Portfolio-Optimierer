@@ -16,7 +16,7 @@ try:
     import streamlit as st
     from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-    from ui import common, header, state
+    from ui import auth, common, header, state
 except ModuleNotFoundError as exc:
     package = (exc.name or "").split(".")[0]
     if package in ("portfolio_optimizer", "ui"):
@@ -54,6 +54,8 @@ def main() -> None:
     st.logo(str(HERE / "static" / "mark.svg"), size="large")  # Name folgt als Text (ui/common.py)
     th = common.theme()
     common.inject_style()
+    if not auth.allowed():  # nur mit APP_PASSWORD, z. B. beim Betrieb im Internet
+        st.stop()
     page = st.navigation(PAGES, position="top")
     settings = header.render()
     ctx = state.load_context(settings)
