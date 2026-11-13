@@ -58,6 +58,27 @@ def data_root() -> Path:
     return user_root(account) if account is not None else _root()
 
 
+PROVIDER_FILE = "marktdaten.txt"  # kein .json: sonst hielte die Depot-Ablage die Datei für ein Depot
+
+
+def saved_provider() -> str | None:
+    """Zuletzt gewählte Marktdaten, damit nach dem Neuladen dieselben Depots erscheinen."""
+    try:
+        value = (data_root() / PROVIDER_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value if value in PROVIDERS else None
+
+
+def remember_provider(provider: str) -> None:
+    try:
+        folder = data_root()
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / PROVIDER_FILE).write_text(provider, encoding="utf-8")
+    except OSError:  # Ablage nicht beschreibbar: die Wahl gilt dann nur in dieser Sitzung
+        pass
+
+
 def store(provider: str) -> PortfolioStore:
     """Echte und Demo-Portfolios liegen getrennt, weil die Symbole nicht zusammenpassen."""
     return PortfolioStore(data_root() if provider == "yahoo" else data_root() / "demo")

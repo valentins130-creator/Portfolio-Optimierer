@@ -186,7 +186,8 @@ def _confirm_delete(account: Account) -> None:
 
 def account_menu(account: Account) -> None:
     with st.popover("Konto", icon=":material/account_circle:"):
-        st.markdown(f"Angemeldet als  \n**{account.email}**")
+        with st.container(key="account_email"):
+            st.markdown(f"Angemeldet als  \n**{account.email}**")
         if st.button("Abmelden", icon=":material/logout:", width="stretch", key="sign_out"):
             sign_out()
             st.rerun()

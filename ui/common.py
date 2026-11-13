@@ -8,6 +8,7 @@ Grün und Rot nur für Gewinne und Verluste, Orange nur für überschrittene Gre
 from __future__ import annotations
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from portfolio_optimizer import charts
 
@@ -78,7 +79,20 @@ def inject_style() -> None:
     [data-testid="stMainBlockContainer"] {{ padding-top: 5rem; padding-bottom: 5rem; max-width: 1180px; }}
 
     h1, h2, h3, h4 {{ color: var(--po-ink); letter-spacing: -0.02em; text-wrap: balance; }}
-    .st-key-po_cookie {{ position: absolute; width: 0; height: 0; overflow: hidden; }}  /* setzt nur das Cookie */
+    /* unsichtbare Rahmen: setzen nur das Cookie bzw. Sprache und Browserfarbe */
+    .st-key-po_cookie, .st-key-po_meta {{ position: absolute; width: 0; height: 0; overflow: hidden; }}
+    /* Fokus per Tastatur nicht unter der festen Kopfzeile verstecken */
+    [data-testid="stMain"] {{ scroll-padding-top: 5rem; }}
+    /* Tippen auf dem Handy: keine Doppeltipp-Verzögerung, kein grauer Blitz (Buttons geben eigenes Feedback) */
+    button, a, [role="tab"], [data-baseweb="select"] {{ touch-action: manipulation;
+                                                       -webkit-tap-highlight-color: transparent; }}
+    /* Dialoge und Menüs scrollen für sich, ohne die Seite dahinter mitzuziehen */
+    [role="dialog"], [data-testid="stPopoverBody"] {{ overscroll-behavior: contain; }}
+    /* Lange Namen (Depots, Wertpapiere, E-Mail-Adressen) umbrechen statt überzulaufen */
+    .po-page-head .po-eyebrow, .po-xray-title, .po-xray-sub, .po-hint-name, .st-key-account_email p,
+    [role="dialog"] strong {{ overflow-wrap: anywhere; }}
+    .po-card-title {{ margin: 0; padding: 0; color: var(--po-ink); font-size: 1.375rem; font-weight: 600;
+                      line-height: 1.2; letter-spacing: -0.02em; }}
 
     /* Buttons: leichter Druck beim Klicken */
     [data-testid^="stBaseButton"] {{ transition: transform 100ms ease, background-color 150ms ease,
@@ -108,6 +122,15 @@ def inject_style() -> None:
         box-shadow: 0 1px 3px var(--po-shadow), 0 0 0 1px var(--po-line), inset 0 1px 0 var(--po-edge);
     }}
     button[data-variant="segmented_control"]:focus-visible {{ outline: 2px solid var(--po-primary); outline-offset: 2px; }}
+    /* Handy: gleich breite Felder im Raster statt einer umbrechenden Pille */
+    @media (max-width: 767.98px) {{
+        .stElementContainer:has(> [data-testid="stButtonGroup"] button[data-variant="segmented_control"]),
+        [data-testid="stButtonGroup"]:has(> div > button[data-variant="segmented_control"]) {{ width: 100% !important; }}
+        [data-testid="stButtonGroup"] > div:has(> button[data-variant="segmented_control"]) {{
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); width: 100%;
+            border-radius: 26px; }}
+        button[data-variant="segmented_control"] {{ padding: 0 0.75rem; }}
+    }}
 
     /* Karten: Streamlit-Container mit Schlüssel „card_…“ und HTML-Karten (.po-card).
        Sie reagieren auf die Maus: heben sich leicht an, die Kante wird kräftiger, ein weicher Schatten
@@ -146,9 +169,12 @@ def inject_style() -> None:
     .po-hero .po-label {{ color: var(--po-muted); font-size: 0.875rem; font-weight: 500; }}
     .po-hero .po-value {{ color: var(--po-ink); font-size: 3.2rem; font-weight: 600; line-height: 1.05;
                          letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }}
-    .po-hero .po-sub {{ color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.5; margin-top: 0.5rem; }}
-    .po-hero .po-sub > span {{ white-space: nowrap; }}
-    .po-hero .po-sub span + span::before {{ content: "·"; color: var(--po-muted); margin: 0 0.5rem; }}
+    /* Teile umbrechen als Ganzes; der Trennpunkt sitzt in der Lücke und fällt am Zeilenanfang weg
+       (er liegt dort links außerhalb und wird abgeschnitten) */
+    .po-hero .po-sub {{ display: flex; flex-wrap: wrap; column-gap: 1.1rem; overflow: hidden; color: var(--po-ink2);
+                       font-size: 0.9375rem; line-height: 1.5; margin-top: 0.5rem; }}
+    .po-hero .po-sub > span {{ position: relative; white-space: nowrap; }}
+    .po-hero .po-sub > span + span::before {{ content: "·"; position: absolute; left: -0.72rem; color: var(--po-muted); }}
     .po-up {{ color: var(--po-up); font-weight: 600; }}
     .po-down {{ color: var(--po-down); font-weight: 600; }}
 
@@ -172,6 +198,30 @@ def inject_style() -> None:
         [data-testid^="stBaseButton"]:active {{ transform: none; }}
     }}
     </style>""")
+
+
+def page_meta() -> None:
+    """Sprache, Browserfarbe und E-Mail-Felder der Seite einstellen; Streamlit bietet dafür keine Option.
+
+    ``lang="de"``: Screenreader lesen deutsch vor, der Browser bietet keine Übersetzung an. ``theme-color``
+    färbt die Browserleiste auf dem Handy wie den Hintergrund. E-Mail-Felder bekommen die E-Mail-Tastatur,
+    ohne automatische Großschreibung, Autokorrektur und Rechtschreibprüfung.
+    """
+    bg = TOKENS["bg"][1 if is_dark() else 0]
+    with st.container(key="po_meta"):
+        components.html(f"""<script>
+        const doc = window.parent.document;
+        doc.documentElement.lang = "de";
+        let meta = doc.querySelector('meta[name="theme-color"]');
+        if (!meta) {{ meta = doc.createElement("meta"); meta.name = "theme-color"; doc.head.appendChild(meta); }}
+        meta.content = "{bg}";
+        const fix = () => doc.querySelectorAll('input[autocomplete="email"]:not([inputmode])').forEach(el => {{
+            el.name = "email"; el.inputMode = "email"; el.spellcheck = false;
+            el.setAttribute("autocapitalize", "none"); el.setAttribute("autocorrect", "off");
+        }});
+        fix();
+        new MutationObserver(fix).observe(doc.body, {{ childList: true, subtree: true }});
+        </script>""", height=0)
 
 
 def page_head(title: str, eyebrow: str = "", intro: str = "") -> None:

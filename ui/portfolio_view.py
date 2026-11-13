@@ -49,7 +49,7 @@ def render(run: RunState) -> None:
     if adding:
         with st.container(key="card_add"):
             head, close = st.columns([4, 1], vertical_alignment="center")
-            head.markdown("#### Transaktion erfassen")
+            head.html('<h2 class="po-card-title">Transaktion erfassen</h2>')
             if ctx.portfolio.securities:
                 close.button("Schließen", key="add_close", on_click=_set_adding, args=(False,), width="stretch")
             _add_transaction(ctx)
@@ -107,7 +107,7 @@ def _hero(ctx: PortfolioContext) -> None:
     if not ctx.quotes.empty:
         parts.append(f"<span>{quote_stand(ctx.quotes)}</span>")
     st.html(f'<div class="po-hero"><div class="po-label">Depotwert</div>'
-            f'<div class="po-value">{num(ctx.value)} €</div><div class="po-sub">{"".join(parts)}</div></div>')
+            f'<div class="po-value">{num(ctx.value)} €</div><div class="po-sub">{" ".join(parts)}</div></div>')
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ def _pick_security(ctx: PortfolioContext):
         return symbol, securities[symbol]
     placeholder = ("z. B. Nordlicht, Technologie, ETF" if ctx.provider == "demo"
                    else "Name, Ticker oder ISIN – z. B. Apple, SAP.DE oder IE00B4L5Y983")
-    query = st.text_input("Wertpapier suchen", key="tx_query", placeholder=placeholder).strip()
+    query = st.text_input("Wertpapier suchen", key="tx_query", placeholder=placeholder, autocomplete="off").strip()
     if not query:
         return None
     try:

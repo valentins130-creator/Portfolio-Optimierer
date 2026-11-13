@@ -56,6 +56,7 @@ def main() -> None:
     st.logo(str(HERE / "static" / "mark.svg"), size="large")  # Name folgt als Text (ui/common.py)
     th = common.theme()
     common.inject_style()
+    common.page_meta()
     auth.sync_cookie()
     if auth.enabled() and auth.current_user() is None:
         landing_view.render()  # Startseite mit Anmelden und Konto erstellen

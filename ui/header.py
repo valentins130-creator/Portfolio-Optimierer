@@ -19,7 +19,9 @@ from ui.state import (
     current_portfolio,
     example_portfolio,
     history_eur,
+    remember_provider,
     reset_portfolio_inputs,
+    saved_provider,
     security_info,
     set_portfolio,
     store,
@@ -31,6 +33,7 @@ YEARS = [1, 2, 3, 5, 10, 15, 20]
 
 def _provider_changed(widget_key: str) -> None:
     st.session_state["set_provider"] = st.session_state[widget_key]
+    remember_provider(st.session_state["set_provider"])
     reset_portfolio_inputs()
 
 
@@ -43,6 +46,7 @@ def use_provider(provider: str) -> None:
     """
     st.session_state["set_provider"] = provider
     st.session_state["set_provider_version"] = st.session_state.get("set_provider_version", 0) + 1
+    remember_provider(provider)
     reset_portfolio_inputs()
 
 
@@ -191,7 +195,7 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
     new, transfer, delete, bin_ = st.tabs(["Neu", "Import/Export", "Löschen",
                                            f"Papierkorb ({len(trash)})" if trash else "Papierkorb"])
     with new:
-        st.text_input("Name des neuen Portfolios", key="pf_new_name")
+        st.text_input("Name des neuen Portfolios", key="pf_new_name", autocomplete="off")
         st.button("Anlegen", on_click=_create, args=(provider,), type="primary")
         if provider == "demo":
             st.divider()
@@ -226,7 +230,9 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
 
 def render() -> Settings:
     """Zeichnet die Kopfzeile und liefert die aktuellen Einstellungen."""
-    provider = st.session_state.get("set_provider", next(iter(PROVIDERS)))
+    if "set_provider" not in st.session_state:  # neue Sitzung: zuletzt gewählte Marktdaten
+        st.session_state["set_provider"] = saved_provider() or next(iter(PROVIDERS))
+    provider = st.session_state["set_provider"]
     portfolio = current_portfolio(provider)
     names = store(provider).names()
     if portfolio.name not in names:

@@ -103,8 +103,11 @@ def _limits_popover() -> conc.Limits:
                              key="lim_currency")
         cluster = st.slider("Korrelations-Cluster", 10, 100, int(d.cluster * 100), 5, format="%d %%",
                             key="lim_cluster")
-        corr = st.slider("Korrelation ab", 0.5, 0.95, float(d.correlation), 0.05, key="lim_corr",
-                         help="Einzelwerte, die im Mittel mindestens so stark korrelieren, bilden einen Cluster.")
+        steps = [round(0.5 + 0.05 * i, 2) for i in range(10)]  # 0,50 bis 0,95, mit deutschem Komma
+        nearest = min(steps, key=lambda s: abs(s - float(st.session_state.get("lim_corr", d.correlation))))
+        st.session_state["lim_corr"] = nearest
+        corr = st.select_slider("Korrelation ab", steps, key="lim_corr", format_func=lambda v: num(v, 2),
+                                help="Einzelwerte, die im Mittel mindestens so stark korrelieren, bilden einen Cluster.")
         st.caption("Fonds und ETFs zählen nicht als Einzelaktie, weil sie selbst breit gestreut sind. Euro, "
                    "Anleihen und Geldmarkt sind von den Grenzen ausgenommen.")
     limits = conc.Limits(position=position / 100, sector=sector / 100, currency=currency / 100,
@@ -357,7 +360,7 @@ def estimation_error(run: RunState) -> None:
                 "Rendite zufällig **überschätzt** und deren Risiko **unterschätzt** wurde. Michaud (1989) nannte "
                 "Mean-Variance-Optimierer deshalb „Fehlermaximierer“.")
 
-    st.markdown("#### 1 · Wie genau sind die Schätzungen?")
+    sub_head("1 · Wie genau sind die Schätzungen?")
     err = ins.estimation_error_table(run.returns)
     err.index = est.assets
     left, right = st.columns([3, 2])
@@ -377,7 +380,7 @@ def estimation_error(run: RunState) -> None:
         st.dataframe(styled(table, pct_cols=("Mittelwert p. a.", "Volatilität p. a.", "Standardfehler",
                                              "95 %: von", "95 %: bis"), num_cols=("Jahre für ±1 Pp.",)))
 
-    st.markdown("#### 2 · Kleine Änderung, große Wirkung")
+    sub_head("2 · Kleine Änderung, große Wirkung")
     st.markdown("Ändere die erwartete Rendite **eines** Assets um einen Bruchteil seiner Schätzunsicherheit und "
                 "beobachte, wie stark sich das Max-Sharpe-Portfolio umbaut (Best & Grauer 1991).")
     c1, c2 = st.columns(2)
@@ -402,7 +405,7 @@ def estimation_error(run: RunState) -> None:
                   help=f"Standardfehler der erwarteten Rendite von {asset}.")
         show_chart(charts.sensitivity_chart(est.assets, before, after, theme))
 
-    st.markdown("#### 3 · Simulationsexperiment: geschätzt vs. tatsächlich")
+    sub_head("3 · Simulationsexperiment: geschätzt vs. tatsächlich")
     st.markdown("Wir tun so, als kennten wir die **wahren** Parameter, simulieren daraus viele alternative "
                 "Kurshistorien, schätzen auf jeder neu, optimieren – und bewerten das Ergebnis mit den wahren "
                 "Parametern. So wird sichtbar, was der Optimierer *verspricht* und was er *liefert*.")
@@ -440,7 +443,7 @@ def estimation_error(run: RunState) -> None:
     else:
         _render_experiment(params, est, rf, bounds, theme)
 
-    st.markdown("#### Was hilft?")
+    sub_head("Was hilft?")
     st.markdown(
         "- **Weniger schätzen:** Minimum-Varianz braucht keine Renditeschätzungen, 1/N gar keine Schätzung.\n"
         "- **Shrinkage:** Bayes-Stein und Ledoit-Wolf (unter **Einstellungen**) dämpfen Ausreißer der Schätzung.\n"

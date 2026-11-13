@@ -187,6 +187,21 @@ def test_accounts_show_the_start_page_and_keep_depots_apart(tmp_path, monkeypatc
     assert "10 Positionen" in _card_heads(at)[0]  # Annas Depot ist wieder da
 
 
+def test_market_data_choice_is_remembered_per_account(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "yahoo", page="uebersicht", accounts=True)
+    _register(at, "anna@beispiel.de")
+    _button(at, "Offline-Demo ausprobieren").click().run()
+    _assert_clean(at)
+    _button(at, "Abmelden").click().run()
+    at.text_input(key="login_email").set_value("anna@beispiel.de")
+    at.text_input(key="login_password").set_value("sehr-geheim-123")
+    _button(at, "Anmelden").click().run()
+    _assert_clean(at)
+    # nach dem Anmelden wieder die Offline-Demo mit Annas Depot, nicht ein leeres Yahoo-Depot
+    assert at.session_state["set_provider"] == "demo" and "10 Positionen" in _card_heads(at)[0]
+    assert "marktdaten" not in at.selectbox(key="pf_select_demo").options[0].lower()
+
+
 def test_deleting_the_account_removes_its_depots(tmp_path, monkeypatch):
     at = _app(tmp_path, monkeypatch, "demo", page="uebersicht", accounts=True)
     _register(at, "anna@beispiel.de")
@@ -221,7 +236,7 @@ def test_empty_depot_shows_the_way_on_every_page(demo_app):
     at = demo_app
     _assert_clean(at)
     assert any("Das Depot ist noch leer" in i.value for i in at.info)
-    assert any(m.value == "#### Transaktion erfassen" for m in at.markdown)
+    assert any('<h2 class="po-card-title">Transaktion erfassen</h2>' in e.proto.body for e in at.html)
     _open(at, "analysen")
     _assert_clean(at)
     assert any("Lege sie unter **Depot** an" in i.value for i in at.info)
