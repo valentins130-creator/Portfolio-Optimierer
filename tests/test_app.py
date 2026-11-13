@@ -1,11 +1,12 @@
 """Rauchtests der Streamlit-Oberfläche mit ``streamlit.testing``.
 
-Die App öffnet mit der Startseite; dahinter liegen drei Ebenen (Portfolio, Analysen, Lösungen)
-mit aufklappbaren Abschnitten, die erst rechnen, wenn sie geöffnet sind. Die Tests öffnen sie
-über ihre Schlüssel.
+Die App hat drei Bereiche (Übersicht, Depot, Analysen); innerhalb eines Bereichs wählt ein
+Segment-Schalter den Abschnitt, und nur dieser rechnet. Die Tests wählen ihn über seinen Schlüssel.
+Mit ACCOUNTS=on braucht die App ein Konto; die Tests dafür stehen unten.
 """
 
 import json
+import re
 import sys
 import types
 import zlib
@@ -21,11 +22,9 @@ from portfolio_optimizer.formatting import num
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
 PAGES = {
-    "start": ("views/start.py", ()),
-    "portfolio": ("views/portfolio.py", ("sec_add", "sec_positions", "sec_transactions", "sec_performance",
-                                         "sec_market", "sec_allocation")),
-    "analysen": ("views/analysen.py", ("sec_cluster", "sec_frontier", "sec_mc", "sec_error")),
-    "loesungen": ("views/loesungen.py", ("sec_rebalance", "sec_hedge")),
+    "uebersicht": ("views/uebersicht.py", None),
+    "depot": ("views/depot.py", "sec_depot"),
+    "analysen": ("views/analysen.py", "sec_analyse"),
 }
 
 
@@ -38,32 +37,49 @@ def _button(at, label):
     return next(b for b in at.button if b.label == label)
 
 
-def _open(at, page, sections=None):
-    """Seite wählen und ihre Abschnitte aufklappen."""
-    path, keys = PAGES[page]
+def _open(at, page, section=None):
+    """Seite wählen und dort einen Abschnitt des Segment-Schalters zeigen."""
+    path, key = PAGES[page]
     at.switch_page(path)
-    for key in keys if sections is None else sections:
-        at.session_state[key] = True
+    if section is not None:
+        at.session_state[key] = section
     return at.run()
 
 
 def _hero(at) -> str:
-    """HTML der Depotwert-Zeile oben auf der Portfolio-Seite."""
+    """HTML der Depotwert-Zeile (Depot und Übersicht)."""
     return next((e.proto.body for e in at.html if "po-hero" in e.proto.body and "<style>" not in e.proto.body), "")
 
 
-def _start_card(at) -> str:
-    """HTML der Karte „Klumpenrisiko“ auf der Startseite (Kennzahlen, Balken, Vorschlag)."""
-    return "".join(b for b in (e.proto.body for e in at.html)
-                   if ("po-stats" in b or "po-xray" in b) and "<style>" not in b)
+def _cards(at) -> list[str]:
+    """HTML der Karten „Klumpenrisiko“ (Kennzahlen, Balken, Vorschlag) in Seitenreihenfolge."""
+    return [b for b in (e.proto.body for e in at.html) if "po-stats" in b and "<style>" not in b]
 
 
-def _app(tmp_path, monkeypatch, provider: str, page: str = "portfolio") -> AppTest:
+def _exceeded(card: str) -> int:
+    return int(re.search(r"<dt>Grenzen überschritten</dt><dd>(\d+)</dd>", card).group(1))
+
+
+def _card_heads(at) -> list[str]:
+    return [b for b in (e.proto.body for e in at.html) if "po-xray-head" in b and "<style>" not in b]
+
+
+def _status(card: str, name: str) -> str:
+    """Zustand (over/near/ok) der Zeile ``name`` in einer Karte."""
+    return re.search(r'<li class="po-meter is-(\w+)"><div class="po-meter-label"><span class="po-meter-name">'
+                     + re.escape(name), card).group(1)
+
+
+def _app(tmp_path, monkeypatch, provider: str, page: str = "depot", accounts: bool = False) -> AppTest:
     """App mit Portfolios in einem temporären Ordner, geöffnet auf der gewünschten Seite."""
     monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
+    if accounts:
+        monkeypatch.setenv("ACCOUNTS", "on")
+    else:
+        monkeypatch.delenv("ACCOUNTS", raising=False)
     at = AppTest.from_file(APP, default_timeout=240)
     at.session_state["set_provider"] = provider
-    if page != "start":  # die Startseite ist die Standardseite
+    if page != "uebersicht":  # die Übersicht ist die Standardseite
         at.switch_page(PAGES[page][0])
     return at.run()
 
@@ -75,7 +91,7 @@ def _saved(tmp_path, name="mein-depot", provider="demo"):
 
 @pytest.fixture
 def demo_app(tmp_path, monkeypatch):
-    """App mit der Offline-Demo auf der Ebene Portfolio; Portfolios landen in einem temporären Ordner."""
+    """App mit der Offline-Demo auf der Seite Depot; Portfolios landen in einem temporären Ordner."""
     return _app(tmp_path, monkeypatch, "demo")
 
 
@@ -87,61 +103,103 @@ def example_app(demo_app):
 
 
 # ---------------------------------------------------------------------------
-# Startseite
+# Übersicht
 # ---------------------------------------------------------------------------
 
 
-def test_start_page_opens_first_and_shows_the_example_while_the_depot_is_empty(tmp_path, monkeypatch):
-    at = _app(tmp_path, monkeypatch, "demo", page="start")
+def test_overview_guides_to_the_first_depot_and_previews_the_analysis(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "demo", page="uebersicht")
     _assert_clean(at)
-    assert any("Sieh, wo dein Depot wirklich Risiko trägt." in e.proto.body for e in at.html)
-    card = _start_card(at)
-    assert "Beispieldepot" in card and "Dein Depot ist noch leer." in card
-    assert "<dt>Grenzen überschritten</dt><dd>4</dd>" in card  # Technologie und drei Einzelwerte
-    assert {"Depot erfassen", "Beispieldepot laden"} <= {b.label for b in at.button}
-    at.segmented_control(key="start_view").set_value("Nach Umschichtung").run()
+    assert any("<h1>Willkommen</h1>" in e.proto.body for e in at.html)
+    assert {"Erste Transaktion erfassen", "Importieren", "Beispieldepot laden"} <= {b.label for b in at.button}
+    assert "Beispieldepot" in _card_heads(at)[0] and "fiktive Werte" in _card_heads(at)[0]
+    before = _exceeded(_cards(at)[0])  # das Beispieldepot überschreitet mehrere Grenzen
+    assert before > 0
+    at.segmented_control(key="preview_view").set_value("Nach Umschichtung").run()
     _assert_clean(at)
-    card = _start_card(at)
-    assert "<dt>Grenzen überschritten</dt><dd>0</dd>" in card
-    assert "Danach hält das Depot alle Grenzen ein." in card
+    card = _cards(at)[0]
+    assert _exceeded(card) < before and "Vorschlag:" in card
 
 
-def test_start_page_analyses_the_own_depot_and_leads_to_the_analysis(example_app):
-    at = _open(example_app, "start")
+def test_overview_shows_the_own_depot_and_leads_to_the_analysis(example_app):
+    at = _open(example_app, "uebersicht")
     _assert_clean(at)
-    card = _start_card(at)
-    assert "noch leer" not in card and "fiktive Werte" not in card and "10 Positionen" in card
+    assert "Depotwert" in _hero(at)
+    head = _card_heads(at)[0]
+    assert "fiktive Werte" not in head and "10 Positionen" in head
+    assert any("po-hints" in e.proto.body for e in at.html)  # Hinweise zu den überschrittenen Grenzen
     _button(at, "Depot prüfen").click().run()
     _assert_clean(at)
-    assert at.session_state["sec_cluster"] is True
+    assert at.session_state["sec_analyse"] == "cluster"
     assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
-def test_offline_demo_can_be_tried_from_the_start_page(tmp_path, monkeypatch):
-    at = _app(tmp_path, monkeypatch, "yahoo", page="start")
+def test_offline_demo_can_be_tried_from_the_overview(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "yahoo", page="uebersicht")
     _button(at, "Offline-Demo ausprobieren").click().run()
     _assert_clean(at)
     assert at.session_state["set_provider"] == "demo"
-    at = _open(at, "analysen")
+    at = _open(at, "analysen", "cluster")
     _assert_clean(at)
     assert at.session_state["set_provider"] == "demo"  # bleibt beim Seitenwechsel
     assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
-def test_password_protects_the_app_when_configured(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_PASSWORD", "geheim")
-    at = _app(tmp_path, monkeypatch, "demo", page="start")
+# ---------------------------------------------------------------------------
+# Konten (ACCOUNTS=on, wie auf Railway)
+# ---------------------------------------------------------------------------
+
+
+def _register(at, email, password="sehr-geheim-123"):
+    at.segmented_control(key="auth_mode").set_value("Konto erstellen").run()
+    at.text_input(key="register_email").set_value(email)
+    at.text_input(key="register_password").set_value(password)
+    _button(at, "Konto erstellen").click().run()
     _assert_clean(at)
-    assert at.text_input(key="login_password").label == "Passwort"
-    assert not _start_card(at)  # ohne Anmeldung nichts von der App
-    at.text_input(key="login_password").set_value("falsch")
+
+
+def test_accounts_show_the_start_page_and_keep_depots_apart(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "demo", page="uebersicht", accounts=True)
+    _assert_clean(at)
+    assert any("Sieh, wo dein Depot wirklich Risiko trägt." in e.proto.body for e in at.html)
+    assert not at.session_state["set_provider"] == "x" and "user" not in at.session_state
+    _register(at, "anna@beispiel.de")
+    assert at.session_state["user"].email == "anna@beispiel.de"
+    _button(at, "Beispieldepot laden").click().run()  # Annas Depot
+    _assert_clean(at)
+    assert len(list((tmp_path / "nutzer").glob("*/demo/*.json"))) == 1
+    _button(at, "Abmelden").click().run()
+    assert "user" not in at.session_state
+
+    at.session_state["set_provider"] = "demo"
+    _register(at, "bert@beispiel.de")
+    assert any("<h1>Willkommen</h1>" in e.proto.body for e in at.html)  # Bert sieht Annas Depot nicht
+    _button(at, "Abmelden").click().run()
+
+    at.session_state["set_provider"] = "demo"
+    at.text_input(key="login_email").set_value("anna@beispiel.de")
+    at.text_input(key="login_password").set_value("falsches-passwort")
     _button(at, "Anmelden").click().run()
-    assert any("Das Passwort passt nicht" in e.value for e in at.error)
-    assert not _start_card(at)
-    at.text_input(key="login_password").set_value("geheim")
+    assert any("stimmen nicht" in e.value for e in at.error)
+    at.text_input(key="login_password").set_value("sehr-geheim-123")
     _button(at, "Anmelden").click().run()
     _assert_clean(at)
-    assert "Grenzen überschritten" in _start_card(at)
+    assert "10 Positionen" in _card_heads(at)[0]  # Annas Depot ist wieder da
+
+
+def test_deleting_the_account_removes_its_depots(tmp_path, monkeypatch):
+    at = _app(tmp_path, monkeypatch, "demo", page="uebersicht", accounts=True)
+    _register(at, "anna@beispiel.de")
+    _button(at, "Beispieldepot laden").click().run()
+    folder = next((tmp_path / "nutzer").iterdir())
+    _button(at, "Konto löschen …").click().run()
+    _button(at, "Konto löschen").click().run()
+    _assert_clean(at)
+    assert not folder.exists() and "user" not in at.session_state
+    at.text_input(key="login_email").set_value("anna@beispiel.de")
+    at.text_input(key="login_password").set_value("sehr-geheim-123")
+    _button(at, "Anmelden").click().run()
+    assert "user" not in at.session_state
 
 
 def test_portfolios_are_stored_on_the_railway_volume(tmp_path, monkeypatch):
@@ -155,19 +213,21 @@ def test_portfolios_are_stored_on_the_railway_volume(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Ebene 1: Portfolio
+# Depot
 # ---------------------------------------------------------------------------
 
 
-def test_empty_portfolio_shows_onboarding_on_every_level(demo_app):
+def test_empty_depot_shows_the_way_on_every_page(demo_app):
     at = demo_app
     _assert_clean(at)
-    assert any("Das Portfolio ist noch leer" in i.value for i in at.info)
-    assert [e.label for e in at.expander] == ["Transaktion erfassen"]
-    for page in ("analysen", "loesungen"):
-        _open(at, page)
-        _assert_clean(at)
-        assert any("Lege sie unter **Portfolio** an" in i.value for i in at.info)
+    assert any("Das Depot ist noch leer" in i.value for i in at.info)
+    assert any(m.value == "#### Transaktion erfassen" for m in at.markdown)
+    _open(at, "analysen")
+    _assert_clean(at)
+    assert any("Lege sie unter **Depot** an" in i.value for i in at.info)
+    _open(at, "uebersicht")
+    _assert_clean(at)
+    assert any("<h1>Willkommen</h1>" in e.proto.body for e in at.html)
 
 
 def test_record_buy_and_sell_with_dates(demo_app, tmp_path):
@@ -216,7 +276,7 @@ def test_closing_price_is_filled_in_for_the_chosen_day(demo_app):
 
 
 def test_transactions_are_deleted_only_after_marking_and_can_be_restored(example_app, tmp_path):
-    at = _open(example_app, "portfolio", sections=["sec_transactions"])
+    at = _open(example_app, "depot", "transactions")
     count = len(_saved(tmp_path, "beispieldepot")["transactions"])
     assert all("Symbol" not in d.value.columns for d in at.dataframe if "Typ" in d.value.columns)
     at.session_state["tx_marked"] = {0, 1}  # zwei Käufe markiert (in der Tabelle per Häkchen)
@@ -234,50 +294,71 @@ def test_transactions_are_deleted_only_after_marking_and_can_be_restored(example
     assert len(_saved(tmp_path, "beispieldepot")["transactions"]) == count
 
 
-def test_example_portfolio_level_portfolio(example_app):
-    at = _open(example_app, "portfolio")
+def test_example_depot_sections(example_app):
+    at = _open(example_app, "depot", "positions")
     _assert_clean(at)
-    assert [e.label for e in at.expander][:3] == ["Transaktion erfassen", "Positionen", "Transaktionen"]
     assert "Depotwert" in _hero(at) and "10 Positionen" in _hero(at)
-    labels = {m.label for m in at.metric}
-    assert {"Persönliche Rendite p. a.", "Zeitgewichtete Rendite p. a.", "Eingezahlt (netto)"} <= labels
-    assert any(m.value == "**Vergleich mit einem Index**" for m in at.markdown)
     positions = next(d.value for d in at.dataframe if "Stand" in d.value.columns)
     assert positions["Stand"].str.startswith("Schluss").all()  # die Demo hat keine Live-Kurse
+    _open(at, "depot", "performance")
+    _assert_clean(at)
+    assert {"Persönliche Rendite p. a.", "Zeitgewichtete Rendite p. a.", "Eingezahlt (netto)"} <= {m.label for m in at.metric}
+    assert any(m.value == "**Vergleich mit einem Index**" for m in at.markdown)
+    for section in ("transactions", "market", "allocation"):
+        _open(at, "depot", section)
+        _assert_clean(at)
 
 
-def test_example_portfolio_level_analyses(example_app):
-    at = _open(example_app, "analysen")
+# ---------------------------------------------------------------------------
+# Analysen (mit den Lösungen direkt bei der passenden Analyse)
+# ---------------------------------------------------------------------------
+
+
+def test_example_analyses_with_solutions(example_app):
+    at = _open(example_app, "analysen", "cluster")
     _assert_clean(at)
     assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
-    labels = {m.label for m in at.metric}
-    assert {"Effektive Anzahl Positionen", "Sharpe-Ratio", "Median-Endvermögen"} <= labels
-    # Voreingestellt ist das effiziente Portfolio mit dem Risiko des eigenen Depots
-    vol = next(m for m in at.metric if m.label == "Volatilität p. a.")
-    assert vol.delta.startswith("±")
-    assert any("**Zusammensetzung der effizienten Portfolios je Risikoniveau**" == m.value for m in at.markdown)
-
-
-def test_example_portfolio_level_solutions(example_app):
-    at = _open(example_app, "loesungen")
-    _assert_clean(at)
-    assert any("innerhalb der Grenzen" in s.value for s in at.success)
+    assert "Effektive Anzahl Positionen" in {m.label for m in at.metric}
+    assert any("innerhalb der Grenzen" in s.value for s in at.success)  # Umschichtung bis zu den Grenzen
     assert [t.label for t in at.tabs][-3:] == ["Markt-Hedge (Beta)", "Beimischung", "Klumpenrisiko absichern"]
     assert any(m.value.startswith("Am besten erklärt") for m in at.markdown)
     assert any(m.value.startswith("**Absichern:**") for m in at.markdown)
+    _open(at, "analysen", "frontier")
+    _assert_clean(at)
+    # Voreingestellt ist das effiziente Portfolio mit dem Risiko des eigenen Depots
+    assert next(m for m in at.metric if m.label == "Volatilität p. a.").delta.startswith("±")
+    assert "Sharpe-Ratio" in {m.label for m in at.metric}
+    assert any("**Zusammensetzung der effizienten Portfolios je Risikoniveau**" == m.value for m in at.markdown)
+    _open(at, "analysen", "mc")
+    _assert_clean(at)
+    assert "Median-Endvermögen" in {m.label for m in at.metric}
+
+
+def test_what_if_slider_shows_the_effect_of_a_new_weight(example_app):
+    at = example_app
+    at.session_state["whatif_symbol"] = "PCH.DEMO"  # Pacific Chips, über der Grenze von 10 %
+    at = _open(at, "analysen", "cluster")
+    _assert_clean(at)
+    assert _status(_cards(at)[0], "Pacific Chips Inc.") == "over"  # „Was wäre, wenn“ mit heutigem Gewicht
+    at.select_slider(key="whatif_weight").set_value(5.0).run()
+    _assert_clean(at)
+    assert _status(_cards(at)[0], "Pacific Chips Inc.") == "ok"  # 5 % liegen unter der Grenze
+    at.segmented_control(key="whatif_view").set_value("Jetzt").run()
+    assert _status(_cards(at)[0], "Pacific Chips Inc.") == "over"
 
 
 def test_open_sections_survive_page_changes(example_app):
-    at = _open(example_app, "analysen", sections=["sec_frontier"])
+    at = _open(example_app, "analysen", "frontier")
     assert any(s.label == "Zielrisiko (Volatilität)" for s in at.select_slider)
-    _open(at, "loesungen", sections=[])
-    _open(at, "analysen", sections=[])
+    _open(at, "depot")
+    _open(at, "analysen")
     _assert_clean(at)
+    assert at.session_state["sec_analyse"] == "frontier"
     assert any(s.label == "Zielrisiko (Volatilität)" for s in at.select_slider)
 
 
 def test_target_risk_follows_the_selected_portfolio(example_app):
-    at = _open(example_app, "analysen", sections=["sec_frontier"])
+    at = _open(example_app, "analysen", "frontier")
     slider = next(s for s in at.select_slider if s.label == "Zielrisiko (Volatilität)")
     slider.set_value(round(at.session_state["frontier_target_widget"] + 0.05, 3)).run()  # mehr Risiko
     assert not next(m for m in at.metric if m.label == "Volatilität p. a.").delta.startswith("±")
@@ -287,7 +368,7 @@ def test_target_risk_follows_the_selected_portfolio(example_app):
 
 
 def test_estimation_error_experiment(example_app):
-    at = _open(example_app, "analysen", sections=["sec_error"])
+    at = _open(example_app, "analysen", "error")
     next(s for s in at.select_slider if s.label == "Anzahl Durchläufe").set_value(50)
     _button(at, "Experiment starten").click().run()
     _assert_clean(at)
@@ -298,17 +379,16 @@ def test_unconstrained_markowitz_with_short_selling(example_app):
     at = example_app
     at.session_state["set_short"] = True
     at.session_state["set_unbounded"] = True
-    _open(at, "analysen")
+    _open(at, "analysen", "frontier")
     _assert_clean(at)
-    _open(at, "loesungen", sections=[])
-    at.radio(key="rb_goal").set_value("same_risk").run()
+    at.segmented_control(key="rb_goal").set_value("same_risk").run()
     assert any("Leerverkäufe" in w.value for w in at.warning)
 
 
 def test_infeasible_weight_cap_falls_back_with_warning(example_app):
     at = example_app
     at.session_state["set_hi"] = 5  # 10 Positionen × 5 % < 100 %
-    _open(at, "analysen")
+    _open(at, "analysen", "frontier")
     _assert_clean(at)
     assert any("vorerst" in w.value for w in at.warning)
 
@@ -405,10 +485,22 @@ def test_yahoo_portfolio_uses_live_prices(fake_yfinance, tmp_path, monkeypatch):
     assert positions.at["AAPL", "Ø Kaufkurs"] == pytest.approx(25.0)
     assert positions.at["SAP.DE", "Stück"] == pytest.approx(20.0)
     assert any("4:1" in c.value for c in at.caption)
-    for page in ("analysen", "loesungen", "start"):
+    for page in ("analysen", "uebersicht"):
         _open(at, page)
         _assert_clean(at)
-    assert "Grenzen überschritten" in _start_card(at) and "Beispieldepot" not in _start_card(at)
+    assert "Beispieldepot" not in _card_heads(at)[0] and "2 Positionen" in _card_heads(at)[0]
+
+
+def test_quote_stand_names_latest_live_time():
+    from ui.portfolio_view import quote_stand
+
+    quotes = pd.DataFrame({"price": [1.0, 2.0, 3.0], "stand": ["live 15:31", "live 17:29", "Schluss 12.11.2026"],
+                           "live": [True, True, False],
+                           "time": [pd.Timestamp("2026-11-13 15:31"), pd.Timestamp("2026-11-13 17:29"), pd.NaT]},
+                          index=["SAP.DE", "AAPL", "FONDS"])
+    assert quote_stand(quotes) == "Kurse live, 17:29 Uhr"  # der jüngste Kurs, nicht der erste
+    closes = quotes.assign(live=False, stand=["Schluss 12.11.2026", "Schluss 12.11.2026", "Schluss 11.11.2026"])
+    assert quote_stand(closes) == "Schlusskurse vom 12.11.2026"
 
 
 def test_yahoo_suggests_actual_close_not_dividend_adjusted(fake_yfinance, tmp_path, monkeypatch):

@@ -2,8 +2,11 @@
 
 Start: ``python -m streamlit run app.py`` (oder einfach ``python app.py``)
 
-Oben die Startseite und drei Ebenen – Portfolio, Analysen, Lösungen. Jede Ebene
-besteht aus aufklappbaren Abschnitten, die erst beim Aufklappen rechnen.
+Drei Bereiche in der oberen Leiste – Übersicht, Depot, Analysen. Innerhalb eines Bereichs
+wählt ein Segment-Schalter den Abschnitt; gerechnet wird nur, was gerade zu sehen ist.
+
+Mit ACCOUNTS=on (Dockerfile, also auf Railway) braucht die App ein Konto: Abgemeldete sehen
+die Startseite mit Anmelden und Konto erstellen, jedes Konto hat eigene Depots.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ try:
     import streamlit as st
     from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-    from ui import auth, common, header, state
+    from ui import auth, common, header, landing_view, state
 except ModuleNotFoundError as exc:
     package = (exc.name or "").split(".")[0]
     if package in ("portfolio_optimizer", "ui"):
@@ -42,10 +45,9 @@ st.set_page_config(page_title="Portfolio-Optimierer", page_icon=str(HERE / "stat
                    initial_sidebar_state="collapsed")
 
 PAGES = [
-    st.Page("views/start.py", title="Start", default=True),
-    st.Page("views/portfolio.py", title="Portfolio"),
+    st.Page("views/uebersicht.py", title="Übersicht", default=True),
+    st.Page("views/depot.py", title="Depot"),
     st.Page("views/analysen.py", title="Analysen"),
-    st.Page("views/loesungen.py", title="Lösungen"),
 ]
 
 
@@ -54,8 +56,10 @@ def main() -> None:
     st.logo(str(HERE / "static" / "mark.svg"), size="large")  # Name folgt als Text (ui/common.py)
     th = common.theme()
     common.inject_style()
-    if not auth.allowed():  # nur mit APP_PASSWORD, z. B. beim Betrieb im Internet
-        st.stop()
+    auth.sync_cookie()
+    if auth.enabled() and auth.current_user() is None:
+        landing_view.render()  # Startseite mit Anmelden und Konto erstellen
+        return
     page = st.navigation(PAGES, position="top")
     settings = header.render()
     ctx = state.load_context(settings)

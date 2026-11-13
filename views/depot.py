@@ -1,4 +1,4 @@
-"""Ebene 1 – Portfolio: Daten und Aufteilung des eigenen Depots."""
+"""Depot: Transaktionen erfassen, Positionen, Entwicklung, Kennzahlen, Aufteilung."""
 
 from ui import portfolio_view
 from ui.state import current_run

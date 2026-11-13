@@ -1,4 +1,8 @@
-"""Ebene 2 – Analysen: Klumpenrisiko, Markowitz, Monte Carlo, Schätzfehler."""
+"""Analysen: Klumpenrisiko, Effizienz (Markowitz), Zukunft (Monte Carlo), Schätzfehler.
+
+Die passenden Lösungen stehen direkt bei der Analyse: beim Klumpenrisiko das Umschichten bis zu den
+Grenzen und die Absicherungen, bei der Effizienz der Weg zum effizienten Portfolio.
+"""
 
 from __future__ import annotations
 
@@ -9,38 +13,80 @@ import streamlit as st
 from portfolio_optimizer import charts, concentration as conc, data, monte_carlo as mc, optimization as opt
 from portfolio_optimizer import instability as ins
 from portfolio_optimizer.formatting import num, pct, ratio, styled
-from ui.common import delta, section, show_chart, show_flash
+from ui import xray
+from ui.common import choose, delta, page_head, show_chart, show_flash, sub_head
+from ui.solutions_view import hedges, rebalancing
 from ui.state import PortfolioContext, RunState, current_limits
 
 TARGET = charts.TARGET_PORTFOLIO
 OWN = charts.OWN_PORTFOLIO
 
 
+SECTIONS = {"cluster": "Klumpenrisiko", "frontier": "Effizienz", "mc": "Zukunft", "error": "Schätzfehler"}
+
+
 def render(run: RunState) -> None:
     show_flash()
     ctx = run.ctx
+    page_head("Analysen", intro="Wo das Risiko deines Depots sitzt, was eine Optimierung leisten kann und wie "
+                                "belastbar ihre Vorschläge sind.")
     if ctx.value <= 0 or ctx.weekly.dropna().shape[0] < 10:
-        st.info("Für die Analysen braucht das Portfolio Positionen mit Kursen und etwas Kurshistorie. "
-                "Lege sie unter **Portfolio** an.")
+        st.info("Für die Analysen braucht das Depot Positionen mit Kursen und etwas Kurshistorie. "
+                "Lege sie unter **Depot** an.")
         return
-    if box := section("Klumpenrisiko", "sec_cluster", expanded=True, icon=":material/bubble_chart:"):
-        with box:
-            concentration(ctx, run.theme)
+    choice = choose("sec_analyse", SECTIONS, "cluster")
+    if choice == "cluster":
+        report = concentration(ctx, run.theme)
+        what_if(ctx)
+        sub_head("Lösungen", "Umschichten, bis die Grenzen eingehalten sind, oder ein Risiko gezielt absichern.")
+        rebalancing(run, report, goals=("limits",))
+        sub_head("Absichern")
+        hedges(ctx, report, run.theme)
+        return
     if run.est is None:
-        st.info("Markowitz, Monte Carlo und Schätzfehler brauchen mindestens zwei Positionen mit gemeinsamer "
+        st.info("Effizienz, Zukunft und Schätzfehler brauchen mindestens zwei Positionen mit gemeinsamer "
                 "Kurshistorie.")
         return
     if run.bounds_error:
         st.warning(run.bounds_error)
-    if box := section("Markowitz – Efficient Frontier", "sec_frontier", icon=":material/stacked_line_chart:"):
-        with box:
-            frontier(run)
-    if box := section("Monte Carlo", "sec_mc", icon=":material/ssid_chart:"):
-        with box:
-            monte_carlo(run)
-    if box := section("Schätzfehler", "sec_error", icon=":material/troubleshoot:"):
-        with box:
-            estimation_error(run)
+    if choice == "frontier":
+        frontier(run)
+        sub_head("Umschichten zum effizienten Portfolio",
+                 "Käufe und Verkäufe, um das gewählte Portfolio mit deinen Positionen zu erreichen.")
+        rebalancing(run, conc.analyze(ctx.weights, ctx.infos, ctx.weekly, current_limits()),
+                    goals=("same_risk", "gmv", "max_sharpe"))
+    elif choice == "mc":
+        monte_carlo(run)
+    else:
+        estimation_error(run)
+
+
+# ---------------------------------------------------------------------------
+# Was wäre, wenn …
+# ---------------------------------------------------------------------------
+
+
+def what_if(ctx: PortfolioContext) -> None:
+    """Gewicht einer Position verschieben und sofort sehen, was mit Grenzen und Risiko passiert."""
+    sub_head("Was wäre, wenn …", "Verschiebe das Gewicht einer Position. Die übrigen Positionen teilen sich den "
+                                 "Rest im bisherigen Verhältnis, alles andere rechnet sofort neu.")
+    order = list(ctx.weights.sort_values(ascending=False).index)
+    if st.session_state.get("whatif_symbol") not in order:
+        st.session_state["whatif_symbol"] = order[0]
+    with st.container(key="card_whatif_controls"):
+        left, right = st.columns([2, 3], gap="large", vertical_alignment="bottom")
+        symbol = left.selectbox("Position", order, key="whatif_symbol",
+                                format_func=lambda s: f"{ctx.labels[s]} · {pct(ctx.weights[s])}")
+        current = round(float(ctx.weights[symbol]) * 200) / 2  # in Schritten von 0,5 Prozentpunkten
+        top = float(min(100, max(50, 10 * np.ceil(current / 10) + 20)))
+        steps = [i / 2 for i in range(int(top * 2) + 1)]
+        if st.session_state.get("whatif_for") != symbol or st.session_state.get("whatif_weight") not in steps:
+            st.session_state["whatif_for"] = symbol
+            st.session_state["whatif_weight"] = current
+        weight = right.select_slider("Neues Gewicht", steps, key="whatif_weight", format_func=lambda v: pct(v / 100),
+                                     help=f"Heute: {pct(float(ctx.weights[symbol]))}")
+    xray.card(xray.what_if(ctx, current_limits(), symbol, weight / 100), "whatif", kicker="Was wäre, wenn …",
+              default=1)
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +130,7 @@ def concentration(ctx: PortfolioContext, theme) -> conc.ConcentrationReport:
         st.markdown("  \n".join(
             f":red-badge[{conc.KINDS[f.kind]}] **{f.group}** – {pct(f.weight)} des Depots, Grenze {pct(f.limit, 0)}, "
             f"{pct(f.risk_share)} der Schwankung" for f in report.exceeded))
-        st.caption("Vorschläge dazu unter Lösungen.")
+        st.caption("Vorschläge dazu weiter unten unter Lösungen.")
     else:
         st.success("Keine Konzentration über den Grenzen.")
     near = [f for f in report.findings if f.status == "nahe Grenze"]

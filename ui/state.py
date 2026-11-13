@@ -47,9 +47,20 @@ def _root() -> Path:
     return Path(folder) if folder else Path(__file__).resolve().parents[1] / "portfolios"
 
 
+def user_root(account) -> Path:
+    """Eigener Ordner eines Kontos; die Kennung ist eine zufällige Hex-Zeichenfolge."""
+    return _root() / "nutzer" / account.id
+
+
+def data_root() -> Path:
+    """Ablage der Depots: mit Konten der Ordner des angemeldeten Nutzers, sonst der gemeinsame Ordner."""
+    account = st.session_state.get("user")
+    return user_root(account) if account is not None else _root()
+
+
 def store(provider: str) -> PortfolioStore:
     """Echte und Demo-Portfolios liegen getrennt, weil die Symbole nicht zusammenpassen."""
-    return PortfolioStore(_root() if provider == "yahoo" else _root() / "demo")
+    return PortfolioStore(data_root() if provider == "yahoo" else data_root() / "demo")
 
 
 def price_store() -> PriceStore:
@@ -390,9 +401,9 @@ def _quotes(provider: str, held: dict[str, SecurityInfo], prices: pd.DataFrame) 
         if symbol in prices.columns and prices[symbol].notna().any():
             series = prices[symbol].dropna()
             rows[symbol] = {"price": float(series.iloc[-1]), "stand": f"Schluss {series.index[-1]:%d.%m.%Y}",
-                            "live": False, "day": series.index[-1].date()}
+                            "live": False, "time": pd.NaT, "day": series.index[-1].date()}
     if not rows:
-        return pd.DataFrame(columns=["price", "stand", "live"])
+        return pd.DataFrame(columns=["price", "stand", "live", "time"])
     majors = sorted({major_currency(held[s].currency)[0] for s in rows} - {BASE_CURRENCY})
     live = live_quotes(provider, tuple(sorted(rows)) + tuple(fx_ticker(c) for c in majors))
     if not live.empty:
@@ -405,8 +416,8 @@ def _quotes(provider: str, held: dict[str, SecurityInfo], prices: pd.DataFrame) 
             price = price_in_euro(float(live.at[symbol, "price"]), held[symbol].currency, fx)
             if np.isfinite(price) and when.date() >= row["day"]:
                 stamp = f"live {when:%H:%M}" if when.date() == today else f"{when:%d.%m. %H:%M}"
-                rows[symbol].update(price=price, stand=stamp, live=True)
-    return pd.DataFrame.from_dict(rows, orient="index")[["price", "stand", "live"]]
+                rows[symbol].update(price=price, stand=stamp, live=True, time=when)
+    return pd.DataFrame.from_dict(rows, orient="index")[["price", "stand", "live", "time"]]
 
 
 def load_context(settings: Settings, portfolio: Portfolio | None = None) -> PortfolioContext:

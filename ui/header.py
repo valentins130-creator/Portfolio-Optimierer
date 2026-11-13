@@ -1,4 +1,4 @@
-"""Kopfzeile: Portfolio-Auswahl, Verwalten (Neu, Import/Export, Löschen, Papierkorb) und Einstellungen."""
+"""Kopfzeile: Depot-Auswahl, Verwalten (Neu, Import/Export, Löschen, Papierkorb), Einstellungen, Konto."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import streamlit as st
 
 from portfolio_optimizer.estimators import COV_ESTIMATORS, MEAN_ESTIMATORS
 from portfolio_optimizer.portfolio import BUY, TRASH_DAYS, Portfolio, read_transactions_csv
+from ui import auth
 from ui.common import flash
 from ui.state import (
     DEFAULT_NAME,
@@ -139,8 +140,9 @@ def load_example(provider: str) -> None:
     flash("Beispieldepot geladen.")
 
 
-def _import(provider: str) -> None:
-    upload = st.session_state.get("pf_upload")
+def import_upload(provider: str, key: str = "pf_upload") -> None:
+    """Depot aus einer hochgeladenen JSON- oder CSV-Datei übernehmen (Callback)."""
+    upload = st.session_state.get(key)
     if upload is None:
         flash("Bitte zuerst eine Datei auswählen.", "error")
         return
@@ -204,7 +206,7 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
         st.file_uploader("Importieren (JSON oder CSV)", type=["json", "csv"], key="pf_upload",
                          help="CSV mit den Spalten Symbol und Stück, optional Datum, Typ (Kauf/Verkauf) und Kurs "
                               "(EUR je Stück).")
-        st.button("Importieren", on_click=_import, args=(provider,))
+        st.button("Importieren", on_click=import_upload, args=(provider,))
     with delete:
         n = len(portfolio.transactions)
         st.markdown(f"**{portfolio.name}** · {n} {'Transaktion' if n == 1 else 'Transaktionen'}")
@@ -238,4 +240,7 @@ def render() -> Settings:
         st.space("stretch")
         with st.popover("Einstellungen", icon=":material/tune:"):
             settings = _settings_popover()
+        user = auth.current_user()
+        if user is not None:
+            auth.account_menu(user)
     return settings

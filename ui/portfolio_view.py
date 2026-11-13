@@ -1,4 +1,4 @@
-"""Ebene 1 – Portfolio: Transaktionen erfassen, Positionen, Wertentwicklung, Kursdaten, Aufteilung."""
+"""Depot: Transaktionen erfassen, Positionen, Transaktionen, Entwicklung, Kennzahlen, Aufteilung."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from portfolio_optimizer.estimators import MEAN_ESTIMATORS
 from portfolio_optimizer.formatting import num, pct, ratio, styled
 from portfolio_optimizer.market import get_provider
 from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, exposures, is_concentration_group, parse_date
-from ui.common import flash, section, show_chart, show_flash
+from ui.common import choose, flash, page_head, show_chart, show_flash
 from ui.state import (
     PortfolioContext,
     RunState,
@@ -31,39 +31,60 @@ from ui.state import (
 DIMENSIONS = {"Sektoren": "sector", "Währungen": "currency"}
 
 
+SECTIONS = {"positions": "Positionen", "transactions": "Transaktionen", "performance": "Entwicklung",
+            "market": "Kennzahlen", "allocation": "Aufteilung"}
+
+
+def _set_adding(open_: bool) -> None:
+    st.session_state["sec_add"] = open_
+
+
 def render(run: RunState) -> None:
     ctx = run.ctx
     show_flash()
+    page_head("Depot", eyebrow=ctx.portfolio.name)
     if ctx.portfolio.positions:
         _hero(ctx)
-    if box := section("Transaktion erfassen", "sec_add", expanded=not ctx.portfolio.securities,
-                      icon=":material/add_circle:"):
-        with box:
+    adding = st.session_state.setdefault("sec_add", not ctx.portfolio.securities)  # bleibt offen bis „Schließen“
+    if adding:
+        with st.container(key="card_add"):
+            head, close = st.columns([4, 1], vertical_alignment="center")
+            head.markdown("#### Transaktion erfassen")
+            if ctx.portfolio.securities:
+                close.button("Schließen", key="add_close", on_click=_set_adding, args=(False,), width="stretch")
             _add_transaction(ctx)
+    else:
+        st.button("Transaktion erfassen", type="primary", icon=":material/add:", key="add_open",
+                  on_click=_set_adding, args=(True,))
     if not ctx.portfolio.securities:
-        st.info("Das Portfolio ist noch leer. Erfasse oben deine Käufe mit Datum, Stückzahl und Kurs."
-                + (" Oder lade über **Neu** das Beispieldepot." if ctx.provider == "demo" else ""))
+        st.info("Das Depot ist noch leer. Erfasse oben deine Käufe mit Datum, Stückzahl und Kurs."
+                + (" Oder lade unter **Verwalten → Neu** das Beispieldepot." if ctx.provider == "demo" else ""))
         return
-    if box := section("Positionen", "sec_positions", expanded=True, icon=":material/table_view:"):
-        with box:
-            _positions(ctx)
-    if box := section("Transaktionen", "sec_transactions", icon=":material/receipt_long:"):
-        with box:
-            _transactions(ctx)
-    if box := section("Wertentwicklung", "sec_performance", icon=":material/show_chart:"):
-        with box:
-            _performance(ctx, run.theme)
-    if box := section("Kursdaten und Kennzahlen", "sec_market", icon=":material/query_stats:"):
-        with box:
-            _market_data(run)
-    if box := section("Aufteilung nach Sektoren und Währungen", "sec_allocation",
-                      icon=":material/donut_small:"):
-        with box:
-            _allocation(ctx, run.theme)
+    choice = choose("sec_depot", SECTIONS, "positions")
+    if choice == "positions":
+        _positions(ctx)
+    elif choice == "transactions":
+        _transactions(ctx)
+    elif choice == "performance":
+        _performance(ctx, run.theme)
+    elif choice == "market":
+        _market_data(run)
+    else:
+        _allocation(ctx, run.theme)
 
 
 def _signed_eur(value: float) -> str:
     return f"{'+' if value > 0 else '−' if value < 0 else '±'}{num(abs(value))} €"
+
+
+def quote_stand(quotes: pd.DataFrame) -> str:
+    """Kursstand in Worten: Zeit des jüngsten Live-Kurses, sonst der häufigste Tag der Schlusskurse."""
+    live = quotes[quotes["live"].astype(bool)]
+    if not live.empty:
+        latest = live.loc[pd.to_datetime(live["time"]).idxmax(), "stand"]
+        return f"Kurse live, {latest.removeprefix('live ')} Uhr"
+    common = quotes["stand"].mode().iloc[0]  # Fonds hinken oft einen Tag hinterher
+    return "Schlusskurse vom " + common.removeprefix("Schluss ")
 
 
 def _hero(ctx: PortfolioContext) -> None:
@@ -84,11 +105,7 @@ def _hero(ctx: PortfolioContext) -> None:
     n = len(ctx.portfolio.positions)
     parts.append(f"<span>{n} {'Position' if n == 1 else 'Positionen'}</span>")
     if not ctx.quotes.empty:
-        live = ctx.quotes[ctx.quotes["live"]]
-        common = ctx.quotes["stand"].mode().iloc[0]  # Fonds hinken oft einen Tag hinterher
-        stand = (f"Kurse live, {live['stand'].iloc[0].removeprefix('live ')} Uhr" if not live.empty
-                 else "Schlusskurse vom " + common.removeprefix("Schluss "))
-        parts.append(f"<span>{stand}</span>")
+        parts.append(f"<span>{quote_stand(ctx.quotes)}</span>")
     st.html(f'<div class="po-hero"><div class="po-label">Depotwert</div>'
             f'<div class="po-value">{num(ctx.value)} €</div><div class="po-sub">{"".join(parts)}</div></div>')
 

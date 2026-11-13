@@ -1,4 +1,8 @@
-"""Ebene 3 – Lösungen: Umschichtung und Absicherung."""
+"""Lösungen zu den Analysen: Umschichtung und Absicherung.
+
+Sie erscheinen direkt bei der passenden Analyse: beim Klumpenrisiko das Einhalten der Grenzen und
+die Absicherungen, bei der Effizienz der Weg zum effizienten Portfolio.
+"""
 
 from __future__ import annotations
 
@@ -20,26 +24,6 @@ from ui.state import (
     prices_eur,
     security_info,
 )
-
-
-def render(run: RunState) -> None:
-    show_flash()
-    ctx = run.ctx
-    if ctx.value <= 0 or ctx.weekly.dropna().shape[0] < 10:
-        st.info("Für Lösungsvorschläge braucht das Portfolio Positionen mit Kursen und etwas Kurshistorie. "
-                "Lege sie unter **Portfolio** an.")
-        return
-    report = conc.analyze(ctx.weights, ctx.infos, ctx.weekly, current_limits())
-    if report.exceeded:
-        n = len(report.exceeded)
-        st.caption(f"{n} {'Konzentration' if n == 1 else 'Konzentrationen'} über den Grenzen – Details und Grenzen "
-                   "unter Analysen → Klumpenrisiko.")
-    if box := section("Umschichtung", "sec_rebalance", expanded=True, icon=":material/swap_horiz:"):
-        with box:
-            rebalancing(run, report)
-    if box := section("Absicherung", "sec_hedge", icon=":material/shield:"):
-        with box:
-            hedges(ctx, report, run.theme)
 
 
 # ---------------------------------------------------------------------------
@@ -120,15 +104,23 @@ def _target_weights(run: RunState, goal: str, report, use_world: bool) -> tuple[
     return target, {"infos": infos, "prices": prices}
 
 
-def rebalancing(run: RunState, report: conc.ConcentrationReport) -> None:
+GOALS = {"limits": "Klumpenrisiko begrenzen", "same_risk": "Effizient bei gleichem Risiko",
+         "gmv": "Minimum-Varianz", "max_sharpe": "Max-Sharpe"}
+
+
+def rebalancing(run: RunState, report: conc.ConcentrationReport, goals: tuple[str, ...] = tuple(GOALS)) -> None:
+    """Käufe und Verkäufe zu einem der ``goals``; bei nur einem Ziel ohne Auswahl."""
     ctx, theme = run.ctx, run.theme
-    goals = {"limits": "Klumpenrisiko begrenzen", "same_risk": "Effizient bei gleichem Risiko",
-             "gmv": "Minimum-Varianz", "max_sharpe": "Max-Sharpe"}
-    goal = st.radio("Ziel", list(goals), format_func=goals.get, horizontal=True, key="rb_goal")
+    if len(goals) > 1:
+        if st.session_state.get("rb_goal") not in goals:
+            st.session_state["rb_goal"] = goals[0]
+        goal = st.segmented_control("Ziel", list(goals), format_func=GOALS.get, key="rb_goal", required=True)
+    else:
+        goal = goals[0]
     c1, c2, c3 = st.columns(3)
-    use_world = c1.checkbox("Welt-ETF als Ausgleich zulassen", value=True, key="rb_world", disabled=goal != "limits",
-                            help="Erlaubt den Kauf eines breit gestreuten Welt-ETFs, wenn die Grenzen sonst nicht "
-                                 "einzuhalten sind.")
+    use_world = (c1.checkbox("Welt-ETF als Ausgleich zulassen", value=True, key="rb_world",
+                             help="Erlaubt den Kauf eines breit gestreuten Welt-ETFs, wenn die Grenzen sonst nicht "
+                                  "einzuhalten sind.") if goal == "limits" else False)
     whole = c2.toggle("Ganze Stückzahlen", value=True, key="rb_whole")
     min_trade = c3.number_input("Kleinstbetrag je Transaktion (EUR)", 0, 100_000, 50, 25, key="rb_min_trade",
                                 help="Kleinere Umschichtungen werden ausgelassen.")

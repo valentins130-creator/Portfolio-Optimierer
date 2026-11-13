@@ -6,20 +6,21 @@ Eine Streamlit-App für das eigene Depot: Käufe und Verkäufe mit Datum erfasse
 
 ## Aufbau
 
-Die App öffnet mit der **Startseite**: Sie zeigt das Klumpenrisiko des gewählten Depots jetzt und nach der Umschichtung, die die Ebene Lösungen mit ihren Standardeinstellungen vorschlägt, dazu drei Fragen zum Depot und Einstiege in alle Ebenen. Solange das eigene Depot leer ist, rechnet sie mit dem fiktiven Beispieldepot der Offline-Demo.
+Drei Bereiche, oben in der Leiste: **Übersicht**, **Depot** und **Analysen**. Innerhalb eines Bereichs wählt ein Segment-Schalter den Abschnitt; gezeigt und gerechnet wird nur, was gerade gewählt ist. Gewählte Abschnitte und Eingaben bleiben beim Wechsel des Bereichs erhalten. Die passenden Lösungen stehen direkt bei der Analyse.
 
-Dahinter liegen drei Ebenen, die oben in der Leiste anklickbar sind. Jede Ebene besteht aus aufklappbaren Abschnitten; ein Abschnitt rechnet erst, wenn er geöffnet ist. Geöffnete Abschnitte und Eingaben bleiben beim Wechsel der Ebene erhalten.
-
-| Ebene | Abschnitte |
+| Bereich | Inhalt |
 |---|---|
-| **Start** | Klumpenrisiko jetzt und nach Umschichtung · Problem und Lösung · Funktionen · Impressum und Datenschutz (Vorlagen) |
-| **Portfolio** | Transaktion erfassen · Positionen · Transaktionen · Wertentwicklung · Kursdaten und Kennzahlen · Aufteilung nach Sektoren und Währungen |
-| **Analysen** | Klumpenrisiko · Markowitz – Efficient Frontier · Monte Carlo · Schätzfehler |
-| **Lösungen** | Umschichtung · Absicherung |
+| **Übersicht** | Depotwert · Schnellzugriff · Klumpenrisiko jetzt und nach Umschichtung · Hinweise, was zu tun ist. Ohne Depot: drei Einstiege (erfassen, importieren, Beispiel) und eine Vorschau |
+| **Depot** | Transaktion erfassen · Positionen · Transaktionen · Entwicklung · Kennzahlen · Aufteilung nach Sektoren und Währungen |
+| **Analysen** | Klumpenrisiko mit **Was-wäre-wenn-Regler**, Umschichtung und Absicherung · Effizienz (Markowitz) mit Umschichtung zum effizienten Portfolio · Zukunft (Monte Carlo) · Schätzfehler |
 
-Die Kopfzeile darüber gilt für alle Ebenen: Portfolio auswählen, **Verwalten** (Neu, Import/Export, Löschen, Papierkorb) und **Einstellungen**. Dort werden Marktdaten (Yahoo Finance oder Offline-Demo), die Länge der Historie für die Analysen, die Schätzer (historischer Mittelwert oder Bayes-Stein, Stichproben-Kovarianz oder Ledoit-Wolf), der risikolose Zins und die Gewichtsgrenzen (long-only, Höchstgewichte, Leerverkäufe oder klassischer unbeschränkter Markowitz) eingestellt.
+Die Kopfzeile darüber gilt für alle Bereiche: Depot auswählen, **Verwalten** (Neu, Import/Export, Löschen, Papierkorb), **Einstellungen** und mit Konten **Konto** (Abmelden, Konto löschen). In den Einstellungen werden Marktdaten (Yahoo Finance oder Offline-Demo), die Länge der Historie für die Analysen, die Schätzer (historischer Mittelwert oder Bayes-Stein, Stichproben-Kovarianz oder Ledoit-Wolf), der risikolose Zins und die Gewichtsgrenzen (long-only, Höchstgewichte, Leerverkäufe oder klassischer unbeschränkter Markowitz) eingestellt.
 
-**Design.** Warmes Off-White, Tiefblau für Aktionen, dezentes Orange für Hinweise, Schrift Plus Jakarta Sans (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
+**Was wäre, wenn.** Unter Analysen → Klumpenrisiko verschiebt ein Regler das Gewicht einer Position; die übrigen teilen sich den Rest im bisherigen Verhältnis. Grenzen, Risikoanteile, effektive Positionen und die Schwankung rechnen sofort neu, umschaltbar zwischen „Jetzt“ und „Was wäre, wenn“.
+
+**Design.** Schlicht wie Apple, im Finance-Look: helles Grau, weiße Karten, ein Blau für alles Anklickbare, Grün und Rot nur für Gewinne und Verluste, Orange nur für überschrittene Grenzen. Karten heben sich leicht an, wenn die Maus darüberfährt. Schrift Inter (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
+
+**Konten.** Mit `ACCOUNTS=on` (im `Dockerfile` gesetzt, also auf Railway an) ist die App eine Website mit Konten: Abgemeldete sehen die Startseite mit **Anmelden** und **Konto erstellen** (E-Mail und Passwort, jeder darf sich registrieren), jedes Konto hat eigene Depots. Passwörter liegen nur als scrypt-Hash vor; nach 5 Fehlversuchen ist eine E-Mail 15 Minuten gesperrt. **Angemeldet bleiben** setzt ein Cookie mit einem zufälligen Schlüssel für 30 Tage; Abmelden oder Konto löschen macht ihn sofort ungültig. Lokal ohne die Variable startet die App wie gewohnt ohne Anmeldung.
 
 ## Schnellstart
 
@@ -41,21 +42,21 @@ Die App öffnet sich unter <http://localhost:8501>. Beenden mit `Strg + C` im Te
 
 ## Online betreiben (Railway)
 
-Die App läuft auch im Internet, zum Beispiel auf [Railway](https://railway.com). Das Repository enthält dafür ein `Dockerfile`; Railway erkennt es und baut die App daraus. Den Port gibt Railway in `$PORT` vor, das `Dockerfile` reicht ihn an Streamlit weiter.
+Die App läuft als Website mit Konten, zum Beispiel auf [Railway](https://railway.com). Das Repository enthält dafür ein `Dockerfile`; Railway erkennt es und baut die App daraus. Den Port gibt Railway in `$PORT` vor, das `Dockerfile` reicht ihn an Streamlit weiter und schaltet die Konten ein (`ACCOUNTS=on`).
 
 1. **Projekt anlegen:** In Railway **New Project → Deploy from GitHub repo** und dieses Repository wählen (Branch `main`).
-2. **Passwort setzen:** Im Service unter **Variables** die Variable `APP_PASSWORD` mit einem langen Passwort anlegen. Ohne sie ist die App für jeden mit dem Link offen, samt allen Depots.
-3. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Die App speichert Depots und Kurse automatisch dort, weil Railway dann `RAILWAY_VOLUME_MOUNT_PATH` setzt. Ohne Volume sind sie nach jedem Neustart weg.
-4. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
-5. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
+2. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Dort liegen die Konten (`konten.sqlite`), die Depots je Konto (`nutzer/…`) und die gespeicherten Kurse; Railway setzt dafür `RAILWAY_VOLUME_MOUNT_PATH`. **Ohne Volume sind Konten und Depots nach jedem Neustart weg.**
+3. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
+4. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
+5. **Vor dem Start:** Impressum und Datenschutz (Fußzeile der Startseite, `ui/landing_view.py`) mit den eigenen Angaben ausfüllen und prüfen lassen.
 
-Nach jedem Push auf den gewählten Branch baut Railway neu. Die Anmeldung gilt je Browser-Tab; nach dem Neuladen fragt die App erneut nach dem Passwort. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
+Nach jedem Push auf den gewählten Branch baut Railway neu. Die SQLite-Datei verträgt genau eine laufende Instanz; mehrere Replikate bräuchten eine Datenbank wie PostgreSQL. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
 
 Lokal lässt sich der Container so testen:
 
 ```bash
 docker build -t portfolio-optimierer .
-docker run -p 8501:8501 -e APP_PASSWORD=test portfolio-optimierer
+docker run -p 8501:8501 -v "$PWD/daten:/data" -e PORTFOLIO_DIR=/data portfolio-optimierer
 ```
 
 ## Portfolio
@@ -158,18 +159,20 @@ Im Szenario mit identischen Assets ist das wahre Optimum 1/N. Trotzdem versprich
 ## Projektstruktur
 
 ```
-app.py                         Einstieg: Kopfzeile und Navigation (Start · Portfolio · Analysen · Lösungen)
-Dockerfile                     Container für den Betrieb im Internet (z. B. Railway)
-views/                         Die Seiten der Navigation
+app.py                         Einstieg: Konten, Kopfzeile und Navigation (Übersicht · Depot · Analysen)
+Dockerfile                     Container für die Website (z. B. Railway), mit Konten
+views/                         Die Seiten der Navigation (uebersicht.py, depot.py, analysen.py)
 ui/
-  auth.py                      Passwortschutz, wenn APP_PASSWORD gesetzt ist
-  header.py                    Titel, Portfolio-Auswahl, Neu, Export/Import, Löschen, Einstellungen
-  state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext
-  common.py                    Farben für hell und dunkel, aufklappbare Abschnitte, Meldungen
-  start_view.py                Startseite: Klumpenrisiko jetzt und nach Umschichtung, Einstiege in die Ebenen
-  portfolio_view.py            Ebene Portfolio
-  analysis_view.py             Ebene Analysen
-  solutions_view.py            Ebene Lösungen
+  auth.py                      Konten: Anmelden, Konto erstellen, angemeldet bleiben, Abmelden, Konto löschen
+  landing_view.py              Startseite für Abgemeldete mit Anmeldung, Beispiel, Funktionen, Impressum, Datenschutz
+  header.py                    Depot-Auswahl, Neu, Export/Import, Löschen, Papierkorb, Einstellungen, Konto
+  state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext, Ablage je Konto
+  common.py                    Designsystem (hell und dunkel), Segment-Schalter, Karten, Meldungen
+  xray.py                      Karte Klumpenrisiko: jetzt/nach Umschichtung und Was wäre, wenn
+  overview_view.py             Übersicht
+  portfolio_view.py            Depot
+  analysis_view.py             Analysen mit Was-wäre-wenn-Regler und Lösungen
+  solutions_view.py            Lösungs-Bausteine: Umschichtung und Absicherung
 portfolio_optimizer/
   data.py                      Kursabruf bei Yahoo Finance, Datenbereinigung
   estimators.py                Mittelwert- und Kovarianzschätzer (Stichprobe, Bayes-Stein, Ledoit-Wolf)
@@ -185,7 +188,8 @@ portfolio_optimizer/
   rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
-static/                        Bildmarke und Schrift (Plus Jakarta Sans, SIL Open Font License), von der App ausgeliefert
+  accounts.py                  Konten und Sitzungen (SQLite, scrypt), Sperre nach Fehlversuchen
+static/                        Bildmarke und Schrift (Inter, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
 ```
 

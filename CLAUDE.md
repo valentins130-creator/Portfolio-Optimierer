@@ -5,8 +5,9 @@ Streamlit-App zur Portfolio-Analyse und -Optimierung. Antworten und UI-Texte auf
 - Start: `python -m streamlit run app.py`
 - Tests: `pip install -r requirements-dev.txt` und dann `pytest` (läuft auch in der CI)
 - Aufbau: Rechenlogik in `portfolio_optimizer/`, Oberfläche in `ui/` (Styles in `ui/common.py`), Seiten in `views/`, Theme in `.streamlit/config.toml`
-- Betrieb im Internet: `Dockerfile` (Railway), Passwortschutz über `APP_PASSWORD` (`ui/auth.py`), Speicher über `PORTFOLIO_DIR` oder das Railway-Volume (`RAILWAY_VOLUME_MOUNT_PATH`)
-- Startseite in `ui/start_view.py` (Seite `views/start.py`); Farben für hell und dunkel in `.streamlit/config.toml` (`[theme.light]`, `[theme.dark]`) und `ui/common.py` (`TOKENS`)
+- Bereiche: Übersicht (`ui/overview_view.py`), Depot (`ui/portfolio_view.py`), Analysen (`ui/analysis_view.py`, Lösungen aus `ui/solutions_view.py`); Abschnitte über `common.choose` (Segment-Schalter, Schlüssel `sec_…`)
+- Design: schlicht wie Apple, Finance-Look; Farben für hell und dunkel in `.streamlit/config.toml` (`[theme.light]`, `[theme.dark]`) und `ui/common.py` (`TOKENS`), Schrift Inter, Karten mit Schlüssel `card_…` reagieren auf die Maus
+- Website mit Konten: `ACCOUNTS=on` (im `Dockerfile`), Logik in `portfolio_optimizer/accounts.py`, Oberfläche in `ui/auth.py`, Startseite für Abgemeldete in `ui/landing_view.py`; Speicher über `PORTFOLIO_DIR` oder das Railway-Volume (`RAILWAY_VOLUME_MOUNT_PATH`), Depots je Konto unter `nutzer/<id>`
 
 ## Design- und UI-Arbeit
 

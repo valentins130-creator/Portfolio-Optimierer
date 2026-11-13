@@ -3,10 +3,12 @@
 # docker run -p 8501:8501 portfolio-optimierer
 FROM python:3.12-slim
 
+# ACCOUNTS=on: Website mit Konten (Registrierung, Anmeldung, eigene Depots je Konto)
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    ACCOUNTS=on
 
 WORKDIR /app
 COPY requirements.txt .
