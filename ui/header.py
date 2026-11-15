@@ -129,6 +129,12 @@ def _import(provider: str) -> None:
         if upload.name.lower().endswith(".json"):
             portfolio = Portfolio.from_dict(json.loads(content.decode("utf-8-sig")))
         else:
+            # Broker CSVs contain dividends, transfers and corporate actions. Never
+            # pass them through the simplistic transaction parser as purchases.
+            if content.lstrip().startswith((b"datetime,", b"\xef\xbb\xbfdatetime,")):
+                flash("Trade-Republic-CSV erkannt. Bitte im Tab „Trade Republic“ hochladen; "
+                      "dort werden Geldflüsse und Kapitalmaßnahmen separat geprüft.", "error")
+                return
             portfolio = Portfolio(Path(upload.name).stem)
             # zeitlich geordnet, damit jeder Verkauf auf die Käufe davor trifft
             rows = sorted(read_transactions_csv(content), key=lambda r: (r[4] or date.min, r[1] != BUY))
@@ -165,7 +171,7 @@ def _import(provider: str) -> None:
 
 def _manage(provider: str, portfolio: Portfolio) -> None:
     trash = store(provider).trash()
-    new, transfer, delete, bin_ = st.tabs(["Neu", "Import/Export", "Löschen",
+    new, transfer, statement, delete, bin_ = st.tabs(["Neu", "Import/Export", "Trade Republic", "Löschen",
                                            f"Papierkorb ({len(trash)})" if trash else "Papierkorb"])
     with new:
         st.text_input("Name des neuen Portfolios", key="pf_new_name")
@@ -184,6 +190,9 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
                          help="CSV mit den Spalten Symbol und Stück, optional Datum, Typ (Kauf/Verkauf) und Kurs "
                               "(EUR je Stück).")
         st.button("Importieren", on_click=_import, args=(provider,))
+    with statement:
+        from ui.tr_import_view import render as render_tr_import
+        render_tr_import()
     with delete:
         n = len(portfolio.transactions)
         st.markdown(f"**{portfolio.name}** · {n} {'Transaktion' if n == 1 else 'Transaktionen'}")
