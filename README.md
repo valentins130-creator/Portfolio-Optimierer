@@ -191,3 +191,30 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 - Ledoit, O. & Wolf, M. (2004): Honey, I Shrunk the Sample Covariance Matrix. *Journal of Portfolio Management* 30(4).
 - Jagannathan, R. & Ma, T. (2003): Risk Reduction in Large Portfolios: Why Imposing the Wrong Constraints Helps. *Journal of Finance* 58(4).
 - DeMiguel, V., Garlappi, L. & Uppal, R. (2009): Optimal Versus Naive Diversification: How Inefficient Is the 1/N Portfolio Strategy? *Review of Financial Studies* 22(5).
+
+
+### Trade Republic: CSV und Vermögensübersicht (PDF)
+
+Unter **Verwalten → Trade Republic** lassen sich eine Trade-Republic-Vermögensübersicht
+als PDF und optional eine Transaktionshistorie als CSV hochladen.
+
+- Das PDF ist der **maßgebliche Bestands-Snapshot zum Belegstichtag**: Stückzahlen,
+  ISIN/Symbol, Produktname und EUR-Kurswert werden ausgelesen und gegen den
+  ausgewiesenen Gesamtwert geprüft. Anlageklassen und Werte lassen sich korrigieren.
+  Die Übersicht zeigt die wertgewichtete Verteilung und kann als CSV exportiert werden.
+- Die Transaktions-CSV wird **getrennt** ausgewertet: `BUY`, `SELL` und
+  `FREE_RECEIPT` sind Stückzahlbewegungen. `DIVIDEND`, `INTEREST_PAYMENT`,
+  `DISTRIBUTION`, Einzahlungen und Kartenzahlungen sind **keine Käufe**.
+  Kapitalmaßnahmen wie `SPLIT`, `MERGER` und `WARRANT_EXERCISE` werden
+  markiert und müssen individuell geprüft werden.
+- **Nur eine CSV ohne PDF** erlaubt keine zuverlässige heutige Wertaufteilung:
+  Die berechneten Stückbestände sind vorläufig, insbesondere bei Splits,
+  Fusionen und anderen Kapitalmaßnahmen.
+- Die Import-Vorschau ist **kein automatischer Eintrag in das Markowitz-Portfolio**.
+  Dafür müssen ISINs zuerst verlässlich Yahoo-Tickern zugeordnet und historische
+  Kurse/Corporate Actions abgeglichen werden. Es werden keine erfundenen
+  Kursdaten verwendet.
+- Hochgeladene Dateien werden nur für die aktuelle Streamlit-Sitzung verarbeitet;
+  die Importfunktion schreibt keine Kundendokumente in das Repository.
+  Der Betrieb einer öffentlichen App braucht zusätzlich eine Prüfung der
+  Sitzungsisolation und Datenspeicherung.
