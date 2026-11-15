@@ -133,6 +133,8 @@ class AccountStore:
         email = normalize_email(email)
         now = time.time() if now is None else now
         with self._db() as db:  # Fehlversuch erst speichern, dann melden (sonst ginge er beim Abbruch verloren)
+            # abgelaufene Fehlversuche aller Adressen löschen: sie zählen nicht mehr (Datenschutzerklärung)
+            db.execute("DELETE FROM failures WHERE at <= ?", (now - LOCK_SECONDS,))
             failures = db.execute("SELECT COUNT(*) FROM failures WHERE email = ? AND at > ?",
                                   (email, now - LOCK_SECONDS)).fetchone()[0]
             locked = failures >= MAX_FAILURES

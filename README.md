@@ -48,7 +48,8 @@ Die App läuft als Website mit Konten, zum Beispiel auf [Railway](https://railwa
 2. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Dort liegen die Konten (`konten.sqlite`), die Depots je Konto (`nutzer/…`) und die gespeicherten Kurse; Railway setzt dafür `RAILWAY_VOLUME_MOUNT_PATH`. **Ohne Volume sind Konten und Depots nach jedem Neustart weg.**
 3. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
 4. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
-5. **Vor dem Start:** Impressum und Datenschutz (Fußzeile der Startseite, `ui/landing_view.py`) mit den eigenen Angaben ausfüllen und prüfen lassen.
+5. **Region:** Service und Volume in der EU betreiben (**Settings → Deploy → Regions**: EU West, Amsterdam). Die Datenschutzerklärung geht davon aus.
+6. **Impressum und Datenschutz:** Fußzeile der Startseite in `ui/landing_view.py`; Name, Anschrift und E-Mail stehen oben in `OWNER`, `ADDRESS` und `EMAIL`. Die Datenschutzerklärung nennt einen Vertrag zur Auftragsverarbeitung mit Railway: das [Data Processing Addendum](https://railway.com/legal/dpa) unterschreiben. Texte vor dem Start rechtlich prüfen lassen.
 
 Nach jedem Push auf den gewählten Branch baut Railway neu. Die SQLite-Datei verträgt genau eine laufende Instanz; mehrere Replikate bräuchten eine Datenbank wie PostgreSQL. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
 

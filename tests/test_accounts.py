@@ -66,6 +66,16 @@ def test_too_many_failures_lock_the_email_for_a_while(store):
     assert store.authenticate("anna@beispiel.de", "sehr-geheim-123", now=1001.0 + LOCK_SECONDS).email
 
 
+def test_expired_failures_are_deleted(store, tmp_path):
+    for _ in range(2):  # auch für Adressen ohne Konto, die sich nie erfolgreich anmelden
+        with pytest.raises(AccountError):
+            store.authenticate("niemand@beispiel.de", "falsch-falsch", now=1000.0)
+    with pytest.raises(AccountError):
+        store.authenticate("anna@beispiel.de", "falsch-falsch", now=1001.0 + LOCK_SECONDS)
+    with sqlite3.connect(tmp_path / "konten.sqlite") as db:
+        assert db.execute("SELECT email FROM failures").fetchall() == [("anna@beispiel.de",)]
+
+
 def test_sessions_keep_users_signed_in_until_they_expire_or_end(store):
     account = store.register("anna@beispiel.de", "sehr-geheim-123")
     token = store.create_session(account.id, days=30, now=0.0)
