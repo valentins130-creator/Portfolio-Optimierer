@@ -1,12 +1,12 @@
 """Trade Republic import preview with separated snapshot holdings and cash-flow audit."""
 from __future__ import annotations
 
-import io
+import hashlib
 
 import pandas as pd
 import streamlit as st
 
-from portfolio_optimizer.trade_republic_import import CATEGORIES, parse_broker_csv, parse_statement_pdf
+from portfolio_optimizer.trade_republic_import import CATEGORIES, confirmed_positions, parse_broker_csv, parse_statement_pdf
 
 
 def render() -> None:
@@ -40,11 +40,11 @@ def render() -> None:
         frame = snapshot.positions.copy()
         edited = st.data_editor(
             frame,
-            key="tr_snapshot_editor",
+            key="tr_snapshot_editor_" + hashlib.sha256(pdf.getvalue()).hexdigest(),
             hide_index=True,
             use_container_width=True,
             num_rows="fixed",
-            disabled=["Bereich"],
+            disabled=["Bereich", "Prüfhinweis"],
             column_config={
                 "Anlageklasse": st.column_config.SelectboxColumn("Anlageklasse", options=list(CATEGORIES), required=True),
                 "Wert EUR": st.column_config.NumberColumn("Wert EUR", min_value=0.0, format="%.2f"),
@@ -56,6 +56,8 @@ def render() -> None:
         if edited["Wert EUR"].lt(0).any():
             st.error("Negative Positionswerte sind nicht zulässig.")
             return
+        st.caption("Nur ausdrücklich bestätigte, gültige Positionen fließen in Berechnung und Bestandsexport ein.")
+        edited = confirmed_positions(edited)
         total = float(edited["Wert EUR"].sum())
         if total > 0:
             edited["Anteil %"] = edited["Wert EUR"] / total * 100
@@ -80,15 +82,22 @@ def render() -> None:
                 key="tr_download_holdings",
             )
         else:
-            st.warning("Keine positiven Positionswerte vorhanden.")
+            st.warning("Keine bestätigten, gültigen Positionswerte vorhanden.")
     elif holdings is not None:
         st.info("Ohne Vermögensübersicht können wir nur vorläufige Stückbestände berechnen. "
                 "Prozentuale **Wert**anteile benötigen aktuelle Bewertungen; historische Kaufpreise wären irreführend.")
-        st.dataframe(holdings, hide_index=True, use_container_width=True)
+        reviewed = st.data_editor(holdings, hide_index=True, disabled=["Status", "Prüfhinweis"], num_rows="dynamic",
+                                  key="tr_csv_review_" + hashlib.sha256(csv.getvalue()).hexdigest())
+        approved = confirmed_positions(reviewed)
+        st.caption(f"{len(approved)} bestätigte Positionen; alle übrigen sind vom Bestand ausgeschlossen. "
+                   "Fehlende Bestände nach Belegprüfung als neue Zeile ergänzen. Doppelte Symbole bleiben ausgeschlossen.")
+        st.dataframe(approved, hide_index=True, use_container_width=True)
+        st.download_button("Bestätigten Bestand als CSV", approved.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="portfolio_bestand_bestaetigt.csv", mime="text/csv")
 
     if audit is not None:
         with st.expander("CSV-Prüfprotokoll: Käufe, Verkäufe und Kapitalmaßnahmen", expanded=snapshot is None):
-            st.caption("BUY, SELL und FREE_RECEIPT verändern die Stückzahl. "
+            st.caption("Nur gültige BUY und SELL ergeben vorläufige Stückzahlen. FREE_RECEIPT muss geprüft werden. "
                        "SPLIT, MERGER und andere Kapitalmaßnahmen erfordern eine Einzelprüfung. "
                        "Dividenden und reine Geldbewegungen sind ausgeschlossen.")
             summary = pd.DataFrame([{"Buchungstyp": kind, "Anzahl": count}

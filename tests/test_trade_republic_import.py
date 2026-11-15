@@ -1,10 +1,11 @@
 """Regression checks for Trade Republic imports (no real customer data)."""
 import unittest
+import pandas as pd
 from unittest.mock import patch
 from io import BytesIO
 
 from portfolio_optimizer.trade_republic_import import (
-    category, number, parse_broker_csv, parse_statement_pdf,
+    category, number, parse_broker_csv, parse_statement_pdf, confirmed_positions, is_broker_csv,
 )
 
 
@@ -28,9 +29,40 @@ class TradeRepublicImportTests(unittest.TestCase):
         holdings, audit, counts = parse_broker_csv(csv.encode())
         got = dict(zip(holdings["ISIN/Symbol"], holdings["Anteile"]))
         self.assertEqual(got["US1234567890"], 7)
-        self.assertEqual(got["BTC"], 0.5)
+        self.assertNotIn("BTC", got)
+        self.assertTrue(confirmed_positions(holdings).empty)
         self.assertEqual(counts["DIVIDEND"], 1)
-        self.assertEqual(len(audit[audit["Status"].str.contains("Manuell prüfen")]), 1)
+        self.assertEqual(len(audit[audit["Status"].str.contains("Manuell prüfen")]), 2)
+
+
+    def test_malformed_and_unknown_events_remain_visible(self):
+        content = ("symbol;shares;type;datetime;asset_class\n"
+                   "ABC;10;BUY;2026-01-01;STOCK\n"
+                   "ABC;bad;SELL;2026-01-02;STOCK\n"
+                   "ABC;inf;BUY;2026-01-02;STOCK\n"
+                   "ABC;-2;BUY;2026-01-02;STOCK\n"
+                   "ABC;3;BUY;invalid;STOCK\n"
+                   "ABC;50;SURPRISE;2026-01-02;STOCK\n"
+                   "ABC;99;DEPOSIT;2026-01-02;STOCK\n").encode()
+        holdings, audit, _ = parse_broker_csv(content)
+        self.assertEqual(len(audit), 7)
+        self.assertEqual(holdings.iloc[0]["Anteile"], 10)
+        self.assertEqual(audit["Bestandsänderung"].sum(), 10)
+        self.assertTrue(confirmed_positions(holdings).empty)
+        self.assertTrue(is_broker_csv(b"\xef\xbb\xbf" + content))
+        from portfolio_optimizer.portfolio import read_transactions_csv
+        with self.assertRaises(ValueError):
+            read_transactions_csv(content)
+
+    def test_gate_rejects_invalid_or_unconfirmed_positions(self):
+        frame = pd.DataFrame({"ISIN/Symbol": list("ABCDEFG"),
+                              "Anlageklasse": ["Aktien"] * 7,
+                              "Anteile": [1, 1, float("inf"), -1, 1, 1, 1],
+                              "Wert EUR": [2, 2, 2, 2, float("nan"), 2, 2],
+                              "Bestätigt": [True, False, True, True, True, "True", True]})
+        frame.loc[6, "ISIN/Symbol"] = ""
+        self.assertEqual(list(confirmed_positions(frame).index), [0])
+        self.assertTrue(confirmed_positions(frame.drop(columns="Bestätigt")).empty)
 
     def test_pdf_snapshot_reconciles_to_total(self):
         sample = ("VERMÖGENSÜBERSICHT\n"
@@ -55,6 +87,13 @@ class TradeRepublicImportTests(unittest.TestCase):
         self.assertEqual(len(result.positions), 2)
         self.assertAlmostEqual(result.positions["Wert EUR"].sum(), 300)
         self.assertEqual(result.warnings, [])
+        self.assertTrue(confirmed_positions(result.positions).empty)
+        result.positions["Bestätigt"] = True
+        self.assertEqual(len(confirmed_positions(result.positions)), 2)
+        result.positions.loc[0, "ISIN/Symbol"] = ""
+        self.assertEqual(len(confirmed_positions(result.positions)), 1)
+        result.positions.loc[0, "ISIN/Symbol"] = "EUR"
+        self.assertTrue(confirmed_positions(result.positions).empty)
 
 
 if __name__ == "__main__":

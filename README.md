@@ -218,3 +218,20 @@ als PDF und optional eine Transaktionshistorie als CSV hochladen.
   die Importfunktion schreibt keine Kundendokumente in das Repository.
   Der Betrieb einer öffentlichen App braucht zusätzlich eine Prüfung der
   Sitzungsisolation und Datenspeicherung.
+
+
+### Prüfung von Brokerimporten
+
+Unter Verwalten → Trade Republic werden PDF-Vermögensübersichten und Broker-CSV
+(z. B. Komma/Semikolon, `date` oder `datetime`, UTF-8 mit/ohne BOM) als Vorschau
+importiert. Jede Position beginnt unbestätigt. Erst nach Abgleich mit dem Beleg,
+Korrektur und ausdrücklicher Bestätigung fließt sie in die angezeigte Aufteilung
+und den Bestandsexport ein. Ungültige Zahlen, fehlende Kennungen und doppelte
+Symbole bleiben ausgeschlossen. Die Vorschau verändert kein gespeichertes Depot.
+
+Das CSV-Prüfprotokoll enthält auch Geldbewegungen und unbekannte Buchungstypen.
+Dividenden, Zinsen und Einzahlungen erzeugen keine Anteile; kostenlose Einbuchungen
+und Kapitalmaßnahmen erfordern Prüfung. Betroffene Gesamtbestände müssen mit dem
+Depotauszug abgeglichen werden. Fehlende Bestände lassen sich in der CSV-Vorschau
+nach Prüfung ergänzen. Bestätigungen gelten nur für die jeweilige Datei und Sitzung.
+Brokerdateien und Prüflisten sind im allgemeinen Transaktionsimport gesperrt.

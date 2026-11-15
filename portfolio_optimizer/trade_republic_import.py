@@ -5,18 +5,18 @@ No personal statement content is written to the repository or a server file.
 from __future__ import annotations
 
 import io
+import math
 import re
-from collections import Counter
 from dataclasses import dataclass
-from datetime import date
 
+import numpy as np
 import pandas as pd
 
 
 CATEGORIES = ("Aktien", "Aktien-ETFs/Fonds", "Anleihen", "Anleihen-ETFs/Fonds", "Krypto", "Derivate/Leveraged", "Cash", "Sonstige")
-POSITION_EVENTS = {"BUY": 1, "SELL": -1, "FREE_RECEIPT": 1}
+POSITION_EVENTS = {"BUY": 1, "SELL": -1}
 # Corporate actions need individual assessment; never implicitly become purchases.
-REVIEW_EVENTS = {"SPLIT", "MERGER", "STOCKPERK", "WARRANT_EXERCISE", "FINAL_MATURITY", "FULL_CALL", "TILG"}
+REVIEW_EVENTS = {"FREE_RECEIPT", "SPLIT", "MERGER", "STOCKPERK", "WARRANT_EXERCISE", "FINAL_MATURITY", "FULL_CALL", "TILG"}
 ISIN = re.compile(r"\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b")
 DE_NUMBER = r"[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?"
 
@@ -124,17 +124,21 @@ def parse_statement_pdf(content: bytes) -> Statement:
         warnings.append("Nicht alle ISINs/Symbole wurden erkannt; bitte die Tabelle kontrollieren.")
     if not as_of:
         warnings.append("Der Stichtag konnte nicht erkannt werden.")
+    frame["Prüfhinweis"] = "; ".join(warnings) if warnings else "Bestand und Anlageklasse bestätigen"
+    frame["Bestätigt"] = False
     return Statement(frame, as_of, expected_total, warnings)
 
 
 def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Return provisional holdings, an auditable event table, and type counts.
 
-    Only BUY/SELL/FREE_RECEIPT with positive valid quantities change holdings.
+    Only validated BUY/SELL events contribute to provisional holdings.
     Cashflows, dividends, interest, taxes and unreviewed corporate actions do not.
     No claim of current portfolio valuation is made from historical trade prices.
     """
-    df = pd.read_csv(io.BytesIO(content), dtype={"symbol": str}, low_memory=False)
+    df = pd.read_csv(io.BytesIO(content), sep=None, engine="python", dtype=str, encoding="utf-8-sig")
+    df.columns = df.columns.str.strip().str.lower()
+    df = df.rename(columns={"datetime": "date"})
     required = {"date", "type", "symbol", "shares"}
     if not required.issubset(df.columns):
         raise ValueError("CSV enthält nicht die erwarteten Broker-Spalten: " + ", ".join(sorted(required - set(df.columns))))
@@ -146,19 +150,23 @@ def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         symbol = str(row.get("symbol") or "").strip()
         if symbol.lower() == "nan":
             symbol = ""
-        shares = number(row.get("shares"))
+        try:
+            shares = number(row.get("shares"))
+        except (ValueError, TypeError):
+            shares = float("nan")
         action = "Ignoriert (keine Bestandsänderung)"
         delta = 0.0
         if kind in POSITION_EVENTS:
-            if symbol and shares:
+            if symbol and math.isfinite(shares) and shares != 0 and not (kind == "BUY" and shares < 0) and pd.notna(pd.to_datetime(row.get("date"), errors="coerce")):
                 delta = abs(shares) * POSITION_EVENTS[kind]
                 action = "Bestandsänderung"
             else:
-                action = "Prüfen (Symbol/Stückzahl fehlt)"
+                action = "Prüfen (Symbol, Stückzahl oder Datum ungültig)"
         elif kind in REVIEW_EVENTS:
             action = "Manuell prüfen (Kapitalmaßnahme)"
-        if kind in POSITION_EVENTS or kind in REVIEW_EVENTS:
-            events.append({"Zeile": index + 2, "Datum": row.get("date"), "Typ": kind,
+        elif kind not in {"DIVIDEND", "INTEREST", "INTEREST_PAYMENT", "DEPOSIT", "WITHDRAWAL", "TAX", "FEE", "TRANSFER_IN", "TRANSFER_OUT"}:
+            action = "Manuell prüfen (unbekannter Buchungstyp)"
+        events.append({"Zeile": index + 2, "Datum": row.get("date"), "Typ": kind,
                            "Name": row.get("name") if pd.notna(row.get("name")) else "",
                            "ISIN/Symbol": symbol, "Anlageklasse": row.get("asset_class") if pd.notna(row.get("asset_class")) else "",
                            "Anteile": shares, "Bestandsänderung": delta, "Status": action})
@@ -168,10 +176,37 @@ def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     holdings = []
     for symbol, group in positive.groupby("ISIN/Symbol", sort=False):
         shares = float(group["Bestandsänderung"].sum())
-        if shares <= 1e-9:
+        if abs(shares) <= 1e-9:
             continue
         name = next((str(x) for x in group["Name"].iloc[::-1] if str(x).strip()), symbol)
         asset_class = next((str(x) for x in group["Anlageklasse"].iloc[::-1] if str(x).strip()), "")
         holdings.append({"Name": name, "ISIN/Symbol": symbol, "Anteile": shares,
                          "Anlageklasse": category(name, asset_class), "Status": "Vorläufig; mit Depotauszug abgleichen"})
-    return pd.DataFrame(holdings, columns=["Name", "ISIN/Symbol", "Anteile", "Anlageklasse", "Status"]), audit, types
+    frame = pd.DataFrame(holdings, columns=["Name", "ISIN/Symbol", "Anteile", "Anlageklasse", "Status"])
+    frame["Prüfhinweis"] = "Historie vollständig? Stückzahl und Anlageklasse bestätigen"
+    affected = set(audit.loc[audit["Status"].str.contains("prüfen|Prüfen"), "ISIN/Symbol"])
+    frame.loc[frame["ISIN/Symbol"].isin(affected), "Prüfhinweis"] = "Ungeklärte Buchungen: Gesamtbestand abgleichen und ggf. korrigieren"
+    frame["Bestätigt"] = False
+    return frame, audit, types
+
+
+def confirmed_positions(frame: pd.DataFrame) -> pd.DataFrame:
+    """Single gate for calculation/export: explicit confirmation plus valid position data."""
+    if "Bestätigt" not in frame:
+        return frame.iloc[:0].copy()
+    valid = frame["Bestätigt"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value))
+    valid &= frame["ISIN/Symbol"].fillna("").astype(str).str.strip().ne("")
+    valid &= frame["Anlageklasse"].isin(CATEGORIES)
+    valid &= ~frame["ISIN/Symbol"].duplicated(keep=False)
+    for column in ("Anteile", "Wert EUR", "Kurs (Beleg)"):
+        if column in frame:
+            values = pd.to_numeric(frame[column], errors="coerce")
+            valid &= values.map(lambda value: pd.notna(value) and math.isfinite(value) and value > 0)
+    return frame.loc[valid].copy()
+
+
+def is_broker_csv(content: bytes) -> bool:
+    """Detect broker/review exports by headers regardless of order, BOM or delimiter."""
+    columns = pd.read_csv(io.BytesIO(content), sep=None, engine="python", nrows=0, encoding="utf-8-sig").columns
+    names = {name.strip().lower() for name in columns}
+    return {"type", "symbol", "shares"}.issubset(names) or bool(names & {"bestätigt", "prüfhinweis", "bestandsänderung"})

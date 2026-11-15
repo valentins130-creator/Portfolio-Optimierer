@@ -131,7 +131,8 @@ def _import(provider: str) -> None:
         else:
             # Broker CSVs contain dividends, transfers and corporate actions. Never
             # pass them through the simplistic transaction parser as purchases.
-            if content.lstrip().startswith((b"datetime,", b"\xef\xbb\xbfdatetime,")):
+            from portfolio_optimizer.trade_republic_import import is_broker_csv
+            if is_broker_csv(content):
                 flash("Trade-Republic-CSV erkannt. Bitte im Tab „Trade Republic“ hochladen; "
                       "dort werden Geldflüsse und Kapitalmaßnahmen separat geprüft.", "error")
                 return

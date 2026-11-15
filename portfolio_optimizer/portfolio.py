@@ -345,6 +345,11 @@ def read_transactions_csv(source: bytes | str) -> list[tuple[str, str, float, fl
 
     Pflicht sind Symbol und Stück; ohne Typ-Spalte gilt jede Zeile als Kauf.
     """
+    from portfolio_optimizer.trade_republic_import import is_broker_csv
+
+    raw = source if isinstance(source, bytes) else source.encode("utf-8-sig")
+    if is_broker_csv(raw):
+        raise ValueError("Broker- und Prüfdaten müssen im Trade-Republic-Import bestätigt werden.")
     text = source.decode("utf-8-sig") if isinstance(source, bytes) else source
     try:
         df = pd.read_csv(io.StringIO(text), sep=None, engine="python", dtype=str)
