@@ -1,0 +1,51 @@
+name: Live-Check
+
+# Railway meldet jedes Deployment als GitHub-Deployment (Umgebung "<Projekt> / production").
+# Ist es erfolgreich, prüft dieser Workflow die Live-Seite. Schlägt das Deployment fehl, wird der
+# Workflow rot, damit der Fehler in GitHub am Commit sichtbar ist.
+# Die Adresse kommt aus der Repository-Variablen APP_URL, sonst gilt die Railway-Adresse unten.
+on: deployment_status
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: Smoke-Test gegen die Live-Seite
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      endsWith(github.event.deployment.environment, '/ production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_URL: ${{ vars.APP_URL || 'https://portfolio-optimierer-production.up.railway.app' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Playwright installieren
+        run: |
+          pip install "playwright>=1.50"
+          python -m playwright install --with-deps chromium
+      - name: Smoke-Test (nur lesen, legt kein Konto an)
+        run: python scripts/smoke_test.py "$APP_URL"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-smoke-fehler
+          path: smoke-fehler.png
+          if-no-files-found: ignore
+
+  failed:
+    name: Railway-Deployment fehlgeschlagen
+    if: >-
+      contains(fromJSON('["failure", "error"]'), github.event.deployment_status.state) &&
+      endsWith(github.event.deployment.environment, '/ production')
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::Railway meldet das Deployment von ${{ github.event.deployment.sha }} als ${{ github.event.deployment_status.state }}. Logs: ${{ github.event.deployment_status.log_url }}"
+          exit 1

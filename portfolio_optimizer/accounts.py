@@ -21,32 +21,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from portfolio_optimizer.migrations import migrate
+
 MIN_PASSWORD = 10
 SESSION_DAYS = 30
 MAX_FAILURES = 5
 LOCK_SECONDS = 15 * 60
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL,
-    created TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    expires REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS failures (
-    email TEXT NOT NULL,
-    at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS failures_email ON failures (email);
-"""
-
 
 class AccountError(ValueError):
     """Fehler mit einer Meldung, die so in der Oberfläche erscheinen kann."""
@@ -98,9 +80,7 @@ class AccountStore:
 
     def __init__(self, path: Path):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._db() as db:
-            db.executescript(SCHEMA)
+        migrate(self.path)  # Tabellen anlegen oder auf den neuesten Stand bringen (portfolio_optimizer/migrations.py)
 
     @contextmanager
     def _db(self):
