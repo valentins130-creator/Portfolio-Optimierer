@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from portfolio_optimizer.migrations import migrate
+
 MIN_PASSWORD = 10
 SESSION_DAYS = 30
 MAX_FAILURES = 5
@@ -30,32 +32,6 @@ RESET_MINUTES = 60  # so lange gilt ein Link für ein neues Passwort
 RESET_PER_HOUR = 3  # höchstens so viele Links je Konto und Stunde
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL,
-    created TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    expires REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS failures (
-    email TEXT NOT NULL,
-    at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS failures_email ON failures (email);
-CREATE TABLE IF NOT EXISTS resets (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    created REAL NOT NULL,
-    expires REAL NOT NULL
-);
-"""
-
 
 class AccountError(ValueError):
     """Fehler mit einer Meldung, die so in der Oberfläche erscheinen kann."""
@@ -107,9 +83,7 @@ class AccountStore:
 
     def __init__(self, path: Path):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._db() as db:
-            db.executescript(SCHEMA)
+        migrate(self.path)  # Tabellen anlegen oder auf den neuesten Stand bringen (portfolio_optimizer/migrations.py)
 
     @contextmanager
     def _db(self):
@@ -142,6 +116,9 @@ class AccountStore:
         email = normalize_email(email)
         now = time.time() if now is None else now
         with self._db() as db:  # Fehlversuch erst speichern, dann melden (sonst ginge er beim Abbruch verloren)
+            # abgelaufene Fehlversuche aller Adressen löschen: sie zählen nicht mehr (Datenschutzerklärung)
+            db.execute("DELETE FROM failures WHERE at <= ?", (now - LOCK_SECONDS,))
+            db.execute("DELETE FROM resets WHERE expires < ?", (now,))  # abgelaufene Links (Datenschutzerklärung)
             failures = db.execute("SELECT COUNT(*) FROM failures WHERE email = ? AND at > ?",
                                   (email, now - LOCK_SECONDS)).fetchone()[0]
             locked = failures >= MAX_FAILURES

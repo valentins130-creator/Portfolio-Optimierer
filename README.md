@@ -47,17 +47,39 @@ Die App läuft als Website mit Konten, zum Beispiel auf [Railway](https://railwa
 1. **Projekt anlegen:** In Railway **New Project → Deploy from GitHub repo** und dieses Repository wählen (Branch `main`).
 2. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Dort liegen die Konten (`konten.sqlite`), die Depots je Konto (`nutzer/…`) und die gespeicherten Kurse; Railway setzt dafür `RAILWAY_VOLUME_MOUNT_PATH`. **Ohne Volume sind Konten und Depots nach jedem Neustart weg.**
 3. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
-4. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
-5. **E-Mails für „Passwort vergessen“:** Unter **Variables** den Absender `MAIL_FROM` setzen (z. B. `Portfolio-Optimierer <noreply@deine-domain.de>`) und entweder `RESEND_API_KEY` (Versand über [Resend](https://resend.com), läuft über HTTPS) oder `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` für einen SMTP-Server. Empfohlen ist außerdem `APP_URL` mit der öffentlichen Adresse (z. B. `https://dein-name.up.railway.app`), damit der Link in der E-Mail immer dorthin zeigt. Ohne Versand meldet die App, dass er nicht eingerichtet ist, und schreibt den Link ins Deploy-Log, das nur du siehst. Railway sperrt ausgehendes SMTP je nach Tarif; dann den Weg über Resend nehmen.
-6. **Vor dem Start:** Impressum und Datenschutz (Fußzeile der Startseite, `ui/landing_view.py`) mit den eigenen Angaben ausfüllen und prüfen lassen.
+4. **Deploy-Einstellungen:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen und unter **Settings → Source** „Wait for CI“ einschalten (siehe [Automatisches Deployment](#automatisches-deployment)).
+5. **Region:** Service und Volume in der EU betreiben (**Settings → Deploy → Regions**: EU West, Amsterdam). Die Datenschutzerklärung geht davon aus.
+6. **Impressum und Datenschutz:** Fußzeile der Startseite in `ui/landing_view.py`; Name, Anschrift und E-Mail stehen oben in `OWNER`, `ADDRESS` und `EMAIL`. Die Datenschutzerklärung nennt einen Vertrag zur Auftragsverarbeitung mit Railway: das [Data Processing Addendum](https://railway.com/legal/dpa) unterschreiben. Texte vor dem Start rechtlich prüfen lassen.
+7. **E-Mails für „Passwort vergessen“:** Unter **Variables** den Absender `MAIL_FROM` setzen (z. B. `Portfolio-Optimierer <noreply@deine-domain.de>`) und entweder `RESEND_API_KEY` (Versand über [Resend](https://resend.com), läuft über HTTPS) oder `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` für einen SMTP-Server. Empfohlen ist außerdem `APP_URL` mit der öffentlichen Adresse (z. B. `https://dein-name.up.railway.app`), damit der Link in der E-Mail immer dorthin zeigt. Ohne Versand meldet die App, dass er nicht eingerichtet ist, und schreibt den Link ins Deploy-Log, das nur du siehst. Railway sperrt ausgehendes SMTP je nach Tarif; dann den Weg über Resend nehmen. Die Datenschutzerklärung nennt den Dienst von selbst (Resend oder den SMTP-Server); bei Resend dessen Vertrag zur Auftragsverarbeitung abschließen.
 
-Nach jedem Push auf den gewählten Branch baut Railway neu. Die SQLite-Datei verträgt genau eine laufende Instanz; mehrere Replikate bräuchten eine Datenbank wie PostgreSQL. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
+Die SQLite-Datei verträgt genau eine laufende Instanz; mehrere Replikate bräuchten eine Datenbank wie PostgreSQL. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
 
 Lokal lässt sich der Container so testen:
 
 ```bash
 docker build -t portfolio-optimierer .
 docker run -p 8501:8501 -v "$PWD/daten:/data" -e PORTFOLIO_DIR=/data portfolio-optimierer
+```
+
+### Automatisches Deployment
+
+Jeder Merge (oder Push) auf `main` geht automatisch live, aber nur, wenn alle Prüfungen grün sind:
+
+1. **CI** (`.github/workflows/ci.yml`, auch bei jedem Pull Request):
+   - **Tests:** die ganze pytest-Suite.
+   - **Container, Migration und Smoke-Test:** baut das Image aus dem `Dockerfile` wie Railway. Dann legt es mit dem *vorherigen* Stand (Basis des Pull Requests bzw. letzter Commit auf `main`) ein Konto an, startet den neuen Stand auf denselben Daten und meldet sich mit diesem Konto an. Damit ist die Migration gegen echte Altdaten geprüft. Danach ein Neustart wie bei einem weiteren Deployment und noch einmal anmelden: Die Daten bleiben, und die Migration läuft ein zweites Mal ohne Schaden.
+2. **Railway** wartet mit dem Deploy, bis die CI fertig ist („Wait for CI“), und überspringt das Deployment, wenn sie rot ist.
+3. **Start im Container:** zuerst `python -m portfolio_optimizer.migrations`, dann Streamlit. Ein Pre-Deploy-Befehl von Railway ginge nicht, weil dort das Volume nicht eingehängt ist. Schlägt die Migration fehl, startet die App nicht, der Healthcheck (`/_stcore/health`) schlägt fehl und Railway meldet das Deployment als fehlgeschlagen. Mit Volume hat jeder Deploy eine kurze Ausfallzeit, weil Railway nie zwei Deployments gleichzeitig auf dasselbe Volume lässt.
+4. **Live-Check** (`.github/workflows/live-check.yml`): Railway meldet jedes Deployment an GitHub. Ist es erfolgreich, prüft ein Smoke-Test die Live-Seite (Health-Check, Startseite ohne Fehler, Impressum, Datenschutz). Er liest nur und legt kein Konto an. Schlägt das Deployment fehl, wird der Workflow rot. Die Adresse lässt sich über die Repository-Variable `APP_URL` ändern.
+
+**Migrationen** stehen in `portfolio_optimizer/migrations.py`. Den erreichten Stand merkt sich die Konten-Datenbank (`PRAGMA user_version`). Vor jeder Migration wird `konten.sqlite` nach `backups/` im Volume gesichert, die letzten 10 Sicherungen bleiben liegen. Alle ausstehenden Schritte laufen in einer Transaktion, bei einem Fehler bleibt der alte Stand. Eine neue Migration ist eine Funktion `_v<n>(db, root)`, die hinten an `MIGRATIONS` angehängt wird. Sie bekommt auch den Speicherordner und kann so Depot-Dateien umbauen. Bestehende Migrationen nie ändern, sie sind auf dem Server schon gelaufen. Ist die Datenbank neuer als der Code (Rollback auf ein älteres Deployment), bleibt sie unverändert.
+
+**Empfohlen in GitHub:** Unter **Settings → Branches** für `main` eine Regel anlegen, die Pull Requests und die Checks „Tests“ und „Container, Migration und Smoke-Test“ verlangt. Dann landet nichts Ungeprüftes auf `main`.
+
+Den Smoke-Test gibt es auch lokal (braucht `pip install playwright` und `python -m playwright install chromium`):
+
+```bash
+python scripts/smoke_test.py https://portfolio-optimierer-production.up.railway.app
 ```
 
 ## Portfolio
@@ -190,9 +212,12 @@ portfolio_optimizer/
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
   accounts.py                  Konten und Sitzungen (SQLite, scrypt), Sperre nach Fehlversuchen, Links für neue Passwörter
+  migrations.py                Versionierte Migrationen des Datenspeichers mit Sicherung, läuft beim Start
   mailer.py                    E-Mail-Versand über die Resend-API oder SMTP
 static/                        Bildmarke und Schrift (Inter, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
+scripts/smoke_test.py          Smoke-Test gegen eine laufende Instanz (CI-Container und Live-Seite)
+.github/workflows/             CI vor dem Deploy, Live-Check danach (siehe Automatisches Deployment)
 ```
 
 ## Tests

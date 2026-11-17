@@ -1,0 +1,106 @@
+name: CI
+
+# Läuft bei Pull Requests und bei jedem Push auf main. Railway wartet mit dem Deploy, bis alle
+# Workflows auf dem Commit fertig sind ("Wait for CI"), und überspringt das Deployment, wenn einer
+# fehlschlägt. Was hier grün ist, geht also live; was rot ist, nicht.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # nur bei Pull Requests abbrechen: ein abgebrochener Lauf auf main hielte das Deployment auf
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pytest:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+
+  container:
+    name: Container, Migration und Smoke-Test
+    needs: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SMOKE_PASSWORD: ci-smoke-passwort-123  # nur für den Wegwerf-Container in dieser CI
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # für den vorherigen Stand
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Playwright installieren
+        run: |
+          pip install "playwright>=1.50"
+          python -m playwright install --with-deps chromium
+
+      - name: Image bauen (dasselbe Dockerfile wie auf Railway)
+        run: docker build -t po-neu .
+
+      - name: Vorherigen Stand bestimmen
+        id: base
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "sha=$base" >> "$GITHUB_OUTPUT"
+            echo "Vorheriger Stand: $base"
+          else
+            echo "Kein vorheriger Stand, die Migration startet mit leerer Datenbank."
+          fi
+
+      - name: Daten mit dem vorherigen Stand anlegen (wie sie heute auf Railway liegen)
+        if: steps.base.outputs.sha
+        run: |
+          git worktree add ../vorher "${{ steps.base.outputs.sha }}"
+          docker build -t po-vorher ../vorher
+          mkdir -p daten
+          docker run --rm -v "$PWD/daten:/data" -e PORTFOLIO_DIR=/data -e SMOKE_PASSWORD po-vorher python -c \
+            "import os; from portfolio_optimizer.accounts import AccountStore; AccountStore('/data/konten.sqlite').register('ci@beispiel.de', os.environ['SMOKE_PASSWORD'])"
+
+      - name: Neuen Stand auf denselben Daten starten (Migration läuft beim Start)
+        run: |
+          mkdir -p daten
+          docker run -d --name app -p 8501:8501 -v "$PWD/daten:/data" -e RAILWAY_VOLUME_MOUNT_PATH=/data po-neu
+
+      - name: Smoke-Test, Anmelden mit dem Konto aus dem vorherigen Stand
+        if: steps.base.outputs.sha
+        run: python scripts/smoke_test.py http://localhost:8501 --login ci@beispiel.de
+      - name: Smoke-Test, Konto anlegen
+        if: ${{ !steps.base.outputs.sha }}
+        run: python scripts/smoke_test.py http://localhost:8501 --register ci@beispiel.de
+
+      - name: Neustart wie bei einem weiteren Deployment
+        run: docker restart app
+      - name: Smoke-Test nach dem Neustart (Daten noch da, Migration ein zweites Mal harmlos)
+        run: python scripts/smoke_test.py http://localhost:8501 --login ci@beispiel.de
+
+      - name: Migrationsprotokoll prüfen
+        run: |
+          docker logs app 2>&1 | grep "^Migration:" | tee migration.log
+          test "$(wc -l < migration.log)" -eq 2
+          tail -n 1 migration.log | grep -q "ist aktuell"
+
+      - name: Container-Logs bei Fehler
+        if: failure()
+        run: docker logs app || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-fehler
+          path: smoke-fehler.png
+          if-no-files-found: ignore

@@ -3,7 +3,6 @@ Portfolios und der Kontext, den alle Seiten nutzen."""
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -15,6 +14,7 @@ import streamlit as st
 
 from portfolio_optimizer import charts, data, hedging as hg, optimization as opt
 from portfolio_optimizer import concentration as conc
+from portfolio_optimizer import migrations
 from portfolio_optimizer.estimators import Estimates, estimate
 from portfolio_optimizer.market import (
     BASE_CURRENCY,
@@ -43,8 +43,7 @@ def _root() -> Path:
     Volume (Railway setzt ``RAILWAY_VOLUME_MOUNT_PATH``), damit die Depots einen Neustart überstehen.
     Sonst der Ordner ``portfolios`` neben der App.
     """
-    folder = os.environ.get("PORTFOLIO_DIR") or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
-    return Path(folder) if folder else Path(__file__).resolve().parents[1] / "portfolios"
+    return migrations.data_dir()  # derselbe Ordner, den die Migration beim Start bearbeitet
 
 
 def user_root(account) -> Path:

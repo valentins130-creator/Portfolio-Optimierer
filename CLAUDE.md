@@ -35,3 +35,6 @@ was die Prüfung ergeben hat.
 - Keine Fantasiewerte in der UI: Zahlen kommen aus `portfolio_optimizer/`.
 - Gewinne/Verluste immer mit ausreichendem Kontrast und nicht nur über Farbe unterscheidbar.
 - Vor dem Commit `pytest` ausführen.
+- Änderungen an der Konten-Datenbank oder am Format der Depot-Dateien nur als neue Migration in
+  `portfolio_optimizer/migrations.py` (hinten anhängen, bestehende nie ändern). Merge auf `main`
+  deployt automatisch nach Railway, sobald die CI grün ist (README, „Automatisches Deployment“).

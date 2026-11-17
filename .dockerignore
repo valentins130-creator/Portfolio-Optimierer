@@ -13,3 +13,6 @@ tests
 .streamlit/secrets.toml
 Dockerfile
 .dockerignore
+scripts
+daten
+smoke-fehler.png

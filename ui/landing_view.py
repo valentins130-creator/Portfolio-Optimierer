@@ -7,6 +7,7 @@ dem Beispiel und ein nüchternes Datenblatt statt Funktionskacheln. Alle Zahlen 
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from html import escape
 
@@ -90,14 +91,29 @@ def _specs() -> None:
     st.html(f'<section class="po-band"><h2>Im Detail</h2><dl class="po-specs">{rows}</dl></section>')
 
 
+OWNER = "Valentin Siemke"
+ADDRESS = "Kleine Fischerstraße 24  \n27283 Verden"
+EMAIL = "valentins130@gmail.com"
+
+
+def _mail_note() -> str:
+    """Wer die E-Mails verschickt, je nach Einrichtung (``portfolio_optimizer/mailer.py``)."""
+    if os.environ.get("RESEND_API_KEY"):
+        return ("Den Versand übernimmt Resend (Resend, Inc., USA) in meinem Auftrag auf Grundlage eines Vertrags zur "
+                "Auftragsverarbeitung; Resend erhält dabei deine E-Mail-Adresse und den Inhalt der Nachricht. Für die "
+                "Übermittlung in die USA gelten die EU-Standardvertragsklauseln.")
+    if os.environ.get("SMTP_HOST"):
+        return (f"Den Versand übernimmt mein E-Mail-Anbieter ({os.environ['SMTP_HOST']}); er erhält dabei deine "
+                "E-Mail-Adresse und den Inhalt der Nachricht.")
+    return "Derzeit verschickt die Website keine E-Mails; schreib mir in dem Fall bitte eine E-Mail."
+
+
 @st.dialog("Impressum", width="large")
 def _imprint() -> None:
-    st.caption("Vorlage: Markierte Angaben ersetzen und vor der Veröffentlichung rechtlich prüfen lassen.")
     st.markdown(
-        "**Angaben gemäß § 5 DDG**  \n:orange[Vor- und Nachname oder Firma]  \n:orange[Straße und Hausnummer]  \n"
-        ":orange[Postleitzahl und Ort]\n\n"
-        "**Kontakt**  \nE-Mail: :orange[adresse@beispiel.de]\n\n"
-        "**Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV**  \n:orange[Vor- und Nachname, Anschrift wie oben]\n\n"
+        f"**Angaben gemäß § 5 DDG**  \n{OWNER}  \n{ADDRESS}\n\n"
+        f"**Kontakt**  \nE-Mail: [{EMAIL}](mailto:{EMAIL})\n\n"
+        f"**Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV**  \n{OWNER}, Anschrift wie oben\n\n"
         "**Keine Anlageberatung**  \nDer Portfolio-Optimierer ist ein Analyse- und Lernwerkzeug. Seine Inhalte sind "
         "keine Anlageberatung und keine Aufforderung zum Kauf oder Verkauf von Wertpapieren. Alle Auswertungen "
         "beruhen auf historischen Daten und berücksichtigen weder Transaktionskosten noch Steuern."
@@ -106,27 +122,48 @@ def _imprint() -> None:
 
 @st.dialog("Datenschutz", width="large")
 def _privacy() -> None:
-    st.caption("Vorlage: beschreibt, was die Website technisch tut. Markierte Angaben ergänzen und vor der "
-               "Veröffentlichung rechtlich prüfen lassen.")
+    st.caption("Stand: November 2026")
     st.markdown(
-        "**Verantwortlicher**  \n:orange[Name, Anschrift, E-Mail]\n\n"
-        "**Konto**  \nFür ein Konto speichern wir deine E-Mail-Adresse und einen Hash deines Passworts, nie das "
-        "Passwort selbst. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Nutzungsvertrag).\n\n"
+        f"**Verantwortlicher**  \n{OWNER}  \n{ADDRESS}  \nE-Mail: [{EMAIL}](mailto:{EMAIL})\n\n"
+        "**Hosting**  \nDie Website läuft bei der Railway Corporation, 548 Market St PMB 68956, San Francisco, "
+        "CA 94104, USA. Server und Speicher stehen in der EU (Amsterdam, Niederlande). Railway verarbeitet die Daten "
+        "in meinem Auftrag auf Grundlage eines Vertrags zur Auftragsverarbeitung (Art. 28 DSGVO). Railway ist ein "
+        "US-Unternehmen; ein Zugriff aus den USA, etwa für Wartung, ist nicht ausgeschlossen. Dafür gelten die "
+        "EU-Standardvertragsklauseln (Art. 46 Abs. 2 lit. c DSGVO).\n\n"
+        "**Server-Protokolle**  \nBeim Aufruf der Website verarbeitet Railway technisch notwendige Verbindungsdaten, "
+        "darunter deine IP-Adresse, den Zeitpunkt und die aufgerufene Adresse. Die Protokolle werden nach 7 Tagen "
+        "gelöscht. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; mein berechtigtes Interesse ist ein sicherer und "
+        "stabiler Betrieb.\n\n"
+        "**Konto**  \nFür ein Konto speichere ich deine E-Mail-Adresse, den Zeitpunkt der Registrierung und einen "
+        "Hash deines Passworts (scrypt), nie das Passwort selbst. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO "
+        "(Nutzungsvertrag). Die Daten bleiben gespeichert, bis du dein Konto löschst. Ohne E-Mail-Adresse und "
+        "Passwort lässt sich kein Konto anlegen.\n\n"
+        "**Schutz vor Fehlversuchen**  \nBei einer falschen Anmeldung speichere ich die eingegebene E-Mail-Adresse "
+        "und den Zeitpunkt. Nach 5 Fehlversuchen ist die Anmeldung für diese Adresse 15 Minuten gesperrt. Danach "
+        "werden die Einträge gelöscht, nach einer erfolgreichen Anmeldung sofort. Rechtsgrundlage ist Art. 6 Abs. 1 "
+        "lit. f DSGVO; mein berechtigtes Interesse ist der Schutz der Konten vor dem Erraten von Passwörtern.\n\n"
         "**Deine Depots**  \nDepots, Transaktionen und Einstellungen liegen in einem eigenen Ordner deines Kontos auf "
-        "dem Server, nur dein Konto greift darauf zu. Unter Konto → Konto löschen entfernst du Konto und Daten "
-        "endgültig.\n\n"
-        "**Angemeldet bleiben**  \nWählst du es, legt die Seite ein Cookie mit einem zufälligen Schlüssel ab "
-        "(30 Tage). Es dient nur der Anmeldung; beim Abmelden wird es ungültig. Keine Werbe- oder Analyse-Cookies.\n\n"
-        "**Passwort vergessen**  \nFür einen Link zum Zurücksetzen schicken wir eine E-Mail über "
-        ":orange[Name des E-Mail-Dienstes, z. B. Resend]. Der Dienst erhält dabei deine E-Mail-Adresse und den "
-        "Inhalt der Nachricht. Der Link gilt eine Stunde.\n\n"
+        "dem Server, nur dein Konto greift darauf zu. Unter Konto → Konto löschen entfernst du Konto, Depots und "
+        "Anmeldungen endgültig.\n\n"
+        "**Cookies**  \nDie Website setzt nur technisch notwendige Cookies (§ 25 Abs. 2 Nr. 2 TDDDG):  \n"
+        "• `_streamlit_xsrf` schützt vor gefälschten Anfragen (Cross-Site-Request-Forgery) und gilt bis zum "
+        "Schließen des Browsers.  \n"
+        "• `po_session` setzt die Seite nur, wenn du „Angemeldet bleiben“ wählst. Es enthält einen zufälligen "
+        "Schlüssel, gilt 30 Tage und wird beim Abmelden ungültig.  \n"
+        "Es gibt keine Werbe-, Analyse- oder Tracking-Cookies und keine Nutzungsstatistik. Schriften und Grafiken "
+        "kommen vom eigenen Server.\n\n"
+        "**Passwort vergessen**  \nAuf Wunsch schicke ich dir einen Link für ein neues Passwort an die E-Mail-Adresse "
+        "deines Kontos. Gespeichert wird nur ein Hash des Links mit Ablaufzeit; nach einer Stunde oder sobald du ihn "
+        f"benutzt hast, ist er ungültig und wird gelöscht. {_mail_note()} Rechtsgrundlage ist Art. 6 Abs. 1 lit. b "
+        "DSGVO (Nutzungsvertrag).\n\n"
         "**Kurse von Yahoo Finance**  \nFür Kurse, Wechselkurse und Stammdaten fragt der Server bei Yahoo an. Dabei "
-        "erhält Yahoo die angefragten Wertpapiere, aber keine Angaben zu deiner Person.\n\n"
-        "**Hosting**  \nDie Website läuft bei :orange[Name und Sitz des Hosting-Anbieters, z. B. Railway]; der "
-        "Anbieter verarbeitet technisch notwendige Verbindungsdaten. :orange[Speicherdauer der Server-Protokolle "
-        "ergänzen.]\n\n"
-        "**Deine Rechte**  \nAuskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch und "
-        "Beschwerde bei einer Datenschutz-Aufsichtsbehörde."
+        "erhält Yahoo die angefragten Wertpapiere und die IP-Adresse des Servers, aber keine Angaben zu deiner "
+        "Person.\n\n"
+        "**Deine Rechte**  \nDu hast das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung "
+        "(Art. 17), Einschränkung der Verarbeitung (Art. 18) und Datenübertragbarkeit (Art. 20). Einer Verarbeitung "
+        "nach Art. 6 Abs. 1 lit. f kannst du widersprechen (Art. 21). Schreib mir dafür eine E-Mail. Außerdem kannst "
+        "du dich bei einer Datenschutz-Aufsichtsbehörde beschweren, zum Beispiel bei der Landesbeauftragten für den "
+        "Datenschutz Niedersachsen. Eine automatisierte Entscheidungsfindung findet nicht statt."
     )
 
 
