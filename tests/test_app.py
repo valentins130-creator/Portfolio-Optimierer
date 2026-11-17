@@ -131,7 +131,7 @@ def test_overview_shows_the_own_depot_and_leads_to_the_analysis(example_app):
     _button(at, "Depot prüfen").click().run()
     _assert_clean(at)
     assert at.session_state["sec_analyse"] == "cluster"
-    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
+    assert any(":orange-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
 def test_offline_demo_can_be_tried_from_the_overview(tmp_path, monkeypatch):
@@ -142,7 +142,7 @@ def test_offline_demo_can_be_tried_from_the_overview(tmp_path, monkeypatch):
     at = _open(at, "analysen", "cluster")
     _assert_clean(at)
     assert at.session_state["set_provider"] == "demo"  # bleibt beim Seitenwechsel
-    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
+    assert any(":orange-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +388,7 @@ def test_example_depot_sections(example_app):
 def test_example_analyses_with_solutions(example_app):
     at = _open(example_app, "analysen", "cluster")
     _assert_clean(at)
-    assert any(":red-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
+    assert any(":orange-badge[Sektor] **Technologie**" in m.value for m in at.markdown)
     assert "Effektive Anzahl Positionen" in {m.label for m in at.metric}
     assert any("innerhalb der Grenzen" in s.value for s in at.success)  # Umschichtung bis zu den Grenzen
     assert [t.label for t in at.tabs][-3:] == ["Markt-Hedge (Beta)", "Beimischung", "Klumpenrisiko absichern"]

@@ -93,19 +93,22 @@ def _style() -> None:
     .po-spark.is-down { color: var(--po-down); }
     .po-spark > span { position: absolute; inset: 0; background: currentColor;
                        -webkit-mask: var(--m) 0 0 / 100% 100% no-repeat; mask: var(--m) 0 0 / 100% 100% no-repeat; }
-    .po-spark-area { opacity: 0.1; }
-    /* Die Kurve zeichnet sich beim ersten Erscheinen von links nach rechts (eine Abdeckung schrumpft) */
-    .po-spark::after { content: ""; position: absolute; inset: 0; background: var(--po-card); transform-origin: right;
-                       animation: po-uncover 300ms cubic-bezier(0.16, 1, 0.3, 1) 150ms forwards; }
+    .po-spark-area { opacity: 0.16; }
+    /* Die Kurve zeichnet sich beim ersten Erscheinen von links nach rechts (Ausnahme: 700 ms, Datenbild) */
+    .po-spark > span { animation: po-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards; }
 
-    /* Schnellzugriff als ruhige Zeilen: Symbol, Text, Pfeil; beim Überfahren eine Fläche */
     .st-key-card_actions { gap: 0.125rem; }
     .st-key-card_actions [data-testid="stButton"] button {
-        justify-content: flex-start; min-height: 3rem; padding: 0 0.75rem; border: 0; border-radius: 12px;
+        justify-content: flex-start; min-height: 3.25rem; padding: 0 0.75rem; border: 0; border-radius: 12px;
         background: transparent; box-shadow: none; color: var(--po-ink); }
     .st-key-card_actions [data-testid="stButton"] button > div { justify-content: flex-start; }
     .st-key-card_actions [data-testid="stButton"] button p { font-weight: 500; }
-    .st-key-card_actions [data-testid="stButton"] button [data-testid="stIconMaterial"] { color: var(--po-primary); }
+    /* Symbol als kleine Kachel in zartem Indigo, beim Überfahren kräftiger */
+    .st-key-card_actions [data-testid="stButton"] button span:has(> [data-testid="stIconMaterial"]) {
+        display: inline-grid; place-items: center; width: 2.25rem; height: 2.25rem; margin-right: 0.375rem;
+        border-radius: 10px; background: var(--po-primary-tint); transition: background-color 150ms ease; }
+    .st-key-card_actions [data-testid="stButton"] button [data-testid="stIconMaterial"] {
+        color: var(--po-primary); font-size: 1.25rem; transition: color 150ms ease; }
     .st-key-card_actions [data-testid="stButton"] button::after {
         content: "›"; content: "›" / ""; margin-left: auto; padding-left: 1rem; color: var(--po-muted);
         font-size: 1.375rem; line-height: 1; transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1); }
@@ -114,6 +117,9 @@ def _style() -> None:
     @media (hover: hover) {
         .st-key-card_actions [data-testid="stButton"] button:hover { background: var(--po-sunken); }
         .st-key-card_actions [data-testid="stButton"] button:hover::after { transform: translateX(3px); }
+        .st-key-card_actions [data-testid="stButton"] button:hover span:has(> [data-testid="stIconMaterial"]) {
+            background: var(--po-primary-fill); }
+        .st-key-card_actions [data-testid="stButton"] button:hover [data-testid="stIconMaterial"] { color: #ffffff; }
     }
 
     .po-start-title { margin: 1rem 0 0; color: var(--po-ink); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
@@ -204,19 +210,19 @@ def _onboarding(run: RunState) -> None:
     provider = run.ctx.provider
     a, b, c = st.columns(3, gap="medium")
     with a, st.container(key="card_start_add"):
-        st.html(f'{xray.icon("ledger", "po-icon po-icon-l")}<p class="po-start-title">Transaktion erfassen</p>'
+        st.html(f'<span class="po-tile">{xray.icon("ledger")}</span><p class="po-start-title">Transaktion erfassen</p>'
                 '<p class="po-start-text">Käufe und Verkäufe mit Datum, Stückzahl und Kurs eintragen.</p>')
         if st.button("Erste Transaktion erfassen", type="primary", width="stretch", key="start_add"):
             _go("depot", sec_add=True)
     with b, st.container(key="card_start_import"):
-        st.html(f'{xray.icon("swap", "po-icon po-icon-l")}<p class="po-start-title">Depot importieren</p>'
+        st.html(f'<span class="po-tile">{xray.icon("swap")}</span><p class="po-start-title">Depot importieren</p>'
                 '<p class="po-start-text">CSV mit Symbol und Stückzahl, optional Datum und Kurs, oder ein '
                 "JSON-Export dieser App.</p>")
         st.file_uploader("Datei", type=["json", "csv"], key="start_upload", label_visibility="collapsed")
         st.button("Importieren", width="stretch", key="start_import", on_click=header.import_upload,
                   args=(provider, "start_upload"))
     with c, st.container(key="card_start_demo"):
-        st.html(f'{xray.icon("spark", "po-icon po-icon-l")}<p class="po-start-title">Beispiel ansehen</p>'
+        st.html(f'<span class="po-tile">{xray.icon("spark")}</span><p class="po-start-title">Beispiel ansehen</p>'
                 '<p class="po-start-text">Ein fiktives Depot mit Käufen über drei Jahre, zum Ausprobieren.</p>')
         if provider == "demo":
             st.button("Beispieldepot laden", width="stretch", key="start_demo", on_click=header.load_example,

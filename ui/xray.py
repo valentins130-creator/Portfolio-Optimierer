@@ -60,6 +60,16 @@ def eur_nb(x: float, digits: int = 2) -> str:
     return f"{num(x, digits)} €"
 
 
+
+def count(value: float, text: str, digits: int, suffix: str = "", key: str = "") -> str:
+    """Zahl, die beim ersten Erscheinen hochzählt (Skript in ``common.page_meta``); ohne Skript steht ``text``.
+
+    ``key``: dieselbe Zahl zählt nur einmal, auch wenn Streamlit die Karte neu zeichnet.
+    """
+    tag = f' data-po-key="{escape(key)}"' if key else ""
+    return (f'<span class="po-num" data-po-count="{value:.4f}" data-po-digits="{digits}" '
+            f'data-po-suffix="{escape(suffix)}"{tag}>{text}</span>')
+
 # ---------------------------------------------------------------------------
 # Daten
 # ---------------------------------------------------------------------------
@@ -244,17 +254,20 @@ def card(x: XRay, key: str, kicker: str = "Klumpenrisiko", default: int = 0) -> 
         view = st.segmented_control("Zustand", list(x.states), key=f"{key}_view", required=True,
                                     label_visibility="collapsed") or x.states[default]
         i = x.states.index(view)
-        st.html(stats_html(x, i) + meters_html(x, i) + summary_html(x, i) + note_html(x))
+        st.html(stats_html(x, i, key) + meters_html(x, i) + summary_html(x, i) + note_html(x))
 
 
-def stats_html(x: XRay, i: int) -> str:
-    vol = pct_nb(x.vol[i]) if x.vol[i] is not None else "–"
+def stats_html(x: XRay, i: int, key: str = "") -> str:
+    tag = f"{key}-{i}"
+    vol = (count(x.vol[i] * 100, pct_nb(x.vol[i]), 1, "\u00a0%", f"{tag}-vol-{x.vol[i]:.4f}")
+           if x.vol[i] is not None else "–")
+    effective = count(x.effective[i], num(x.effective[i], 1), 1, key=f"{tag}-eff-{x.effective[i]:.3f}")
     return (
         '<dl class="po-stats">'
         f'<div><dt>Grenzen überschritten</dt><dd>{x.exceeded[i]}</dd></div>'
-        f'<div><dt>Effektive Positionen</dt><dd>{num(x.effective[i], 1)} '
+        f'<div><dt>Effektive Positionen</dt><dd>{effective} '
         f'<span class="po-of">von {x.positions[i]}</span></dd></div>'
-        f"<div><dt>Schwankung p. a.</dt><dd>{vol}</dd></div>"
+        f"<div><dt>Schwankung p.\u00a0a.</dt><dd>{vol}</dd></div>"
         "</dl>"
     )
 
@@ -277,7 +290,8 @@ def meters_html(x: XRay, i: int) -> str:
             f'<div class="po-meter-track"><span class="po-meter-fill" style="--v: {min(r.weight[i] / scale, 1):.4f}">'
             f'</span></div><span class="po-meter-limit" style="--l: {r.limit / scale:.4f}"></span></div>'
             f'<div class="po-meter-value"><span class="po-meter-figure">{pct_nb(r.weight[i])}</span>'
-            f'<span class="po-meter-status">{icon(status, "po-icon po-icon-s")}{STATUS[status]}</span></div>'
+            f'<span class="po-meter-status po-chip is-{status}">{icon(status, "po-icon po-icon-s")}{STATUS[status]}'
+            "</span></div>"
             "</li>"
         )
     return f'<ul class="po-meters">{"".join(items)}</ul>'
@@ -362,12 +376,8 @@ def style() -> None:
     .po-meter-value { grid-area: value; display: grid; justify-items: end; text-align: right; }
     .po-meter-figure { color: var(--po-ink); font-size: 1rem; font-weight: 600; line-height: 1.5;
                        font-variant-numeric: tabular-nums; }
-    .po-meter-status { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; line-height: 1.4;
-                       white-space: nowrap; }
-    .po-meter-status .po-icon { width: 14px; height: 14px; }
-    .po-meter.is-over .po-meter-status { color: var(--po-accent-text); }
-    .po-meter.is-near .po-meter-status { color: var(--po-ink2); }
-    .po-meter.is-ok .po-meter-status { color: var(--po-up); }
+    .po-meter-status { margin-top: 0.25rem; }  /* Etikett mit Symbol und Wort (po-chip in ui/common.py) */
+    .po-meter-status .po-icon { width: 13px; height: 13px; }
     .po-xray-summary { margin: 1rem 0 0; color: var(--po-ink2); font-size: 0.875rem; line-height: 1.5; }
     .po-xray-note { margin: 1rem 0 0; padding-top: 1rem; border-top: 1px solid var(--po-line); color: var(--po-muted);
                     font-size: 0.75rem; line-height: 1.4; }

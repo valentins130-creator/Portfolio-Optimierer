@@ -35,30 +35,33 @@ class Theme:
     neg: tuple[str, str]  # negative Seite (mittel, kräftig)
 
 
+# Platz 1 trägt das Indigo der Marke, Platz 7 ein Himmelblau statt Violett (sonst zu nah am Indigo).
+# Beide Reihen mit dem dataviz-Validator geprüft (benachbarte Paare, hell gegen #ffffff, dunkel gegen
+# #121729); die ersten drei Plätze bestehen auch, wenn alle Paare zählen (Streudiagramme).
 LIGHT = Theme(
     dark=False,
-    series=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"),
+    series=("#4352e6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#1593c7", "#e34948"),
     surface="#ffffff",  # Kartenfarbe der App; Palette dagegen geprüft
-    ink="#1d1d1f",
-    ink2="#424245",
-    muted="#6e6e73",
-    grid="#ececf0",
-    axis="#d2d2d7",
-    neutral="#f0f0f3",
+    ink="#0d1b33",
+    ink2="#3a4660",
+    muted="#66718a",
+    grid="#eceff5",
+    axis="#d5dae6",
+    neutral="#eef1f7",
     pos=("#f0a09f", "#b8302f"),
     neg=("#86b6ef", "#184f95"),
 )
 
 DARK = Theme(
     dark=True,
-    series=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"),
-    surface="#16181c",  # Kartenfarbe im dunklen Design; Palette dagegen geprüft
-    ink="#f5f5f7",
-    ink2="#c7c7cc",
-    muted="#98989d",
-    grid="#26292f",
-    axis="#3a3d44",
-    neutral="#2c2f36",
+    series=("#6874f2", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#2a9fd6", "#e66767"),
+    surface="#121729",  # Kartenfarbe im dunklen Design; Palette dagegen geprüft
+    ink="#eef1f8",
+    ink2="#c0c7d8",
+    muted="#8d96ad",
+    grid="#1f2640",
+    axis="#2c3450",
+    neutral="#1a2036",
     pos=("#8f3534", "#e66767"),
     neg=("#1c5cab", "#5598e7"),
 )

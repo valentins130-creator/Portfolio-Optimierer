@@ -44,7 +44,8 @@ def render(run: RunState) -> None:
     show_flash()
     page_head("Depot", eyebrow=ctx.portfolio.name)
     if ctx.portfolio.positions:
-        _hero(ctx)
+        with st.container(key="card_hero"):  # Depotwert auf nachtblauer Karte
+            _hero(ctx)
     adding = st.session_state.setdefault("sec_add", not ctx.portfolio.securities)  # bleibt offen bis „Schließen“
     if adding:
         with st.container(key="card_add"):
@@ -107,7 +108,9 @@ def _hero(ctx: PortfolioContext) -> None:
     if not ctx.quotes.empty:
         parts.append(f"<span>{quote_stand(ctx.quotes)}</span>")
     st.html(f'<div class="po-hero"><div class="po-label">Depotwert</div>'
-            f'<div class="po-value">{num(ctx.value)} €</div><div class="po-sub">{" ".join(parts)}</div></div>')
+            f'<div class="po-value" data-po-count="{ctx.value:.2f}" data-po-digits="0" data-po-suffix="\u00a0€" '
+            f'data-po-key="wert-{round(ctx.value)}">{num(ctx.value)} €</div>'
+            f'<div class="po-sub">{" ".join(parts)}</div></div>')
 
 
 # ---------------------------------------------------------------------------

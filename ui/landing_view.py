@@ -40,55 +40,59 @@ SPECS = [
 def render() -> None:
     show_flash()
     _style()
-    left, right = st.columns([7, 5], gap="large", vertical_alignment="center")
-    with left:
-        st.html(
-            '<div class="po-landing-hero po-rise">'
-            "<h1>Sieh, wo dein Depot wirklich Risiko trägt.</h1>"
-            '<p class="po-landing-lead">Der Portfolio-Optimierer zerlegt dein Depot nach Aktien, Sektoren und '
-            "Währungen, zeigt, woher die Schwankung kommt, und rechnet Umschichtungen durch, die deine eigenen "
-            "Grenzen einhalten.</p>"
-            '<p class="po-landing-meta po-dots"><span>Kostenlos</span><span>Keine Anlageberatung</span>'
-            "<span>Deine Depots sieht nur dein Konto</span></p></div>"
-        )
-    with right:
-        auth.panel()
+    with st.container(key="po_stage"):  # nachtblaue Bühne mit Titel und Anmeldung
+        left, right = st.columns([7, 5], gap="large", vertical_alignment="center")
+        with left:
+            st.html(
+                '<div class="po-landing-hero po-rise">'
+                "<h1>Sieh, wo dein Depot wirklich Risiko trägt.</h1>"
+                '<p class="po-landing-lead">Der Portfolio-Optimierer zerlegt dein Depot nach Aktien, Sektoren und '
+                "Währungen, zeigt, woher die Schwankung kommt, und rechnet Umschichtungen durch, die deine eigenen "
+                "Grenzen einhalten.</p>"
+                '<p class="po-landing-meta po-dots"><span>Kostenlos</span><span>Keine Anlageberatung</span>'
+                "<span>Deine Depots sieht nur dein Konto</span></p></div>"
+            )
+        with right:
+            auth.panel()
+        st.html('<p class="po-landing-caption po-rise" style="--i: 2">Unten das fiktive Beispieldepot: '
+                "Klumpenrisiko jetzt und nach der vorgeschlagenen Umschichtung. Schalte zwischen beiden "
+                "Zuständen um.</p>")
 
     try:
         example = xray.cached_example(Settings().years)
     except Exception:  # pragma: no cover - die Offline-Demo braucht kein Netz
         example = None
     if example is not None:
-        st.html('<p class="po-landing-caption">Am fiktiven Beispieldepot: Klumpenrisiko jetzt und nach der '
-                "vorgeschlagenen Umschichtung. Schalte zwischen beiden Zuständen um.</p>")
-        xray.card(example, "landing")
+        xray.card(example, "landing")  # ragt als Produktbild aus der Bühne heraus
         _numbers(example)
     _specs()
     _footer()
 
 
 def _numbers(x: xray.XRay) -> None:
-    """Drei Zahlen aus dem Beispiel, die ein Depotauszug nicht zeigt."""
+    """Drei Zahlen aus dem Beispiel, die ein Depotauszug nicht zeigt, auf einem warmen Band."""
     stats = []
     top = x.rows[0] if x.rows else None
     if top is not None and top.risk[0] is not None:
-        stats.append((xray.pct_nb(top.risk[0]),
+        stats.append((xray.count(top.risk[0] * 100, xray.pct_nb(top.risk[0]), 1, "\u00a0%", "stat-risk"),
                       f"der Schwankung entfallen auf {escape(top.label)} ({conc.KINDS[top.kind]}), bei "
                       f"{xray.pct_nb(top.weight[0])} Gewicht."))
-    stats.append((f'{num(x.effective[0], 1)}<small> von {x.positions[0]}</small>',
+    stats.append((f'{xray.count(x.effective[0], num(x.effective[0], 1), 1, key="stat-eff")}<small> von {x.positions[0]}</small>',
                   "Positionen wirken effektiv: So viele gleich große hätten dieselbe Konzentration."))
-    stats.append((f'{x.exceeded[0]}<small><span aria-hidden="true"> → </span><span class="po-sr">, danach </span>'
-                  f'{x.exceeded[1]}</small>',
+    stats.append((f'{xray.count(x.exceeded[0], str(x.exceeded[0]), 0, key="stat-limits")}<small><span aria-hidden="true"> → </span>'
+                  f'<span class="po-sr">, danach </span>{x.exceeded[1]}</small>',
                   "überschrittene Grenzen, vor und nach der vorgeschlagenen Umschichtung."))
-    cells = "".join(f'<div class="po-stat po-rise" style="--i: {i}"><p class="po-stat-value">{value}</p>'
-                    f'<p class="po-stat-text">{text}</p></div>' for i, (value, text) in enumerate(stats))
-    st.html(f'<section class="po-band"><h2>Was ein Depotauszug nicht zeigt</h2>'
-            f'<div class="po-stat-row">{cells}</div></section>')
+    cells = "".join(f'<div class="po-stat" data-po-reveal="stat-{i}" style="--i: {i}"><p class="po-stat-value">'
+                    f'{value}</p><p class="po-stat-text">{text}</p></div>' for i, (value, text) in enumerate(stats))
+    st.html(f'<section class="po-band po-band-warm"><h2 data-po-reveal="stats-head">Was ein Depotauszug nicht '
+            f'zeigt</h2><div class="po-stat-row">{cells}</div></section>')
 
 
 def _specs() -> None:
-    rows = "".join(f"<div><dt>{name}</dt><dd>{text}</dd></div>" for name, text in SPECS)
-    st.html(f'<section class="po-band"><h2>Im Detail</h2><dl class="po-specs">{rows}</dl></section>')
+    rows = "".join(f'<div data-po-reveal="spec-{i}" style="--i: {i % 4}"><dt>{name}</dt><dd>{text}</dd></div>'
+                   for i, (name, text) in enumerate(SPECS))
+    st.html(f'<section class="po-band"><h2 data-po-reveal="specs-head">Im Detail</h2>'
+            f'<dl class="po-specs">{rows}</dl></section>')
 
 
 OWNER = "Valentin Siemke"
@@ -183,40 +187,60 @@ def _footer() -> None:
 def _style() -> None:
     xray.style()
     st.html("""<style>
-    .po-landing-hero h1 { margin: 0; padding: 0; max-width: 13em; color: var(--po-ink); font-size: 3.5rem;
-                          font-weight: 560; line-height: 1.04; letter-spacing: -0.035em; text-wrap: balance; }
-    .po-landing-lead { margin: 1.5rem 0 0; max-width: 34rem; color: var(--po-ink2); font-size: 1.25rem; line-height: 1.5; }
-    .po-landing-meta { margin: 1.5rem 0 0 !important; color: var(--po-muted); font-size: 0.9375rem; line-height: 1.5; }
-    .st-key-card_auth { padding: 2rem; }
-    .po-landing-caption { margin: 5rem 0 0; max-width: 46rem; color: var(--po-muted); font-size: 0.9375rem;
-                          line-height: 1.5; }
+    /* Bühne: nachtblaue Fläche mit indigofarbenem Schein, darin Titel und Anmeldung */
+    .st-key-po_stage { position: relative; overflow: hidden; margin-top: -1.5rem; padding: 4.5rem 3.5rem 9rem;
+                       border-radius: 32px;
+                       background: radial-gradient(48rem 26rem at 8% -6%, var(--po-glow), transparent 64%),
+                                   radial-gradient(34rem 22rem at 96% 108%, rgb(74 92 230 / 0.32), transparent 62%),
+                                   var(--po-night); }
+    .po-landing-hero h1 { margin: 0; padding: 0; max-width: 12em; color: var(--po-ink); font-size: 4rem;
+                          font-weight: 560; line-height: 1.02; letter-spacing: -0.04em; text-wrap: balance; }
+    .po-landing-lead { margin: 1.75rem 0 0; max-width: 34rem; color: var(--po-ink2); font-size: 1.25rem; line-height: 1.55; }
+    .po-landing-meta { margin: 1.75rem 0 0 !important; color: var(--po-muted); font-size: 0.9375rem; line-height: 1.5; }
+    .po-landing-caption { margin: 3rem 0 0; color: var(--po-muted); font-size: 0.9375rem; line-height: 1.5; }
+    .st-key-card_auth { color: var(--po-ink); padding: 2rem; box-shadow: 0 30px 60px -24px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06); }
+    /* Produktbild: die Analyse-Karte ragt aus der Bühne heraus */
+    .st-key-card_landing { margin: -7.5rem 2.5rem 0; z-index: 2;
+                           box-shadow: 0 40px 80px -32px var(--po-shadow-strong), 0 1px 2px var(--po-shadow); }
 
-    /* Abschnitte: Überschrift links, Inhalt darunter, getragen von feinen Linien statt Kacheln */
-    .po-band { margin: 7rem 0 0; }
-    .po-band h2 { margin: 0 0 2rem; padding: 0; max-width: 16em; color: var(--po-ink); font-size: 2.25rem;
-                  font-weight: 560; line-height: 1.1; letter-spacing: -0.03em; text-wrap: balance; }
-    .po-stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; }
-    .po-stat { padding-top: 1.25rem; border-top: 1px solid var(--po-line-strong); }
-    .po-stat-value { margin: 0; color: var(--po-ink); font-size: 3rem; font-weight: 500; line-height: 1;
-                     letter-spacing: -0.035em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    /* Abschnitte darunter: Überschrift, Inhalt auf feinen Linien */
+    .po-band { margin: 6rem 0 0; }
+    .po-band h2 { margin: 0 0 2.25rem; padding: 0; max-width: 16em; color: var(--po-ink); font-size: 2.5rem;
+                  font-weight: 560; line-height: 1.1; letter-spacing: -0.035em; text-wrap: balance; }
+    /* warmes Band: unterbricht Weiß und Nachtblau, trägt die drei Zahlen */
+    .po-band-warm { padding: 3.5rem 3.5rem 3.75rem; border-radius: 32px; background: var(--po-warm); }
+    .po-stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.5rem; }
+    .po-stat { padding-top: 1.25rem; border-top: 2px solid var(--po-primary); }
+    .po-stat-value { margin: 0; color: var(--po-primary); font-size: 3.5rem; font-weight: 520; line-height: 1;
+                     letter-spacing: -0.04em; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .po-stat-value small { color: var(--po-muted); font-size: 1.25rem; font-weight: 450; letter-spacing: -0.01em; }
-    .po-stat-text { margin: 0.75rem 0 0; max-width: 22rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.5; }
+    .po-stat-text { margin: 0.875rem 0 0; max-width: 22rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.55; }
     .po-specs { margin: 0 !important; padding: 0 !important; border-bottom: 1px solid var(--po-line); }
     .po-specs > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.25rem 2rem;
-                      padding: 1.125rem 0; border-top: 1px solid var(--po-line); }
+                      padding: 1.25rem 0; border-top: 1px solid var(--po-line); }
     .po-specs dt { color: var(--po-ink); font-size: 0.9375rem; font-weight: 600; line-height: 1.5; }
-    .po-specs dd { margin: 0; max-width: 46rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.5; }
+    .po-specs dd { margin: 0; max-width: 46rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.55; }
 
-    .st-key-po_footer { margin-top: 6rem; padding-top: 2rem; border-top: 1px solid var(--po-line); }
-    .po-footer-about { margin: 0; max-width: 40rem; color: var(--po-ink2); font-size: 0.875rem; line-height: 1.5; }
+    /* Fußzeile als nachtblaue Fläche: rahmt die Seite unten wie die Kopfzeile oben */
+    .st-key-po_footer { margin-top: 6rem; padding: 2.5rem 3.5rem; border-radius: 32px; background: var(--po-night); }
+    .po-footer-about { margin: 0; max-width: 40rem; color: var(--po-ink2); font-size: 0.875rem; line-height: 1.55; }
     .po-footer-meta { margin: 0.5rem 0 0; color: var(--po-muted); font-size: 0.75rem; line-height: 1.4; }
+    .st-key-po_footer [data-testid="stBaseButton-tertiary"], .st-key-po_footer [data-testid="stBaseButton-tertiary"] p {
+        color: rgb(255 255 255 / 0.82) !important; }
+    @media (hover: hover) {
+        .st-key-po_footer [data-testid="stBaseButton-tertiary"]:hover p { color: #ffffff !important; } }
     @media (max-width: 767.98px) {
-        .po-landing-hero h1 { font-size: 2.5rem; }
+        .st-key-po_stage { margin-top: -2rem; padding: 2.5rem 1.25rem 7rem; border-radius: 24px; }
+        .po-landing-hero h1 { font-size: 2.6rem; }
+        .po-landing-lead { font-size: 1.125rem; }
         .st-key-card_auth { padding: 1.5rem; }
-        .po-landing-caption { margin-top: 3.5rem; }
+        .st-key-card_landing { margin: -5.5rem 0.5rem 0; }
         .po-band { margin-top: 4.5rem; }
         .po-band h2 { font-size: 1.875rem; }
-        .po-stat-row { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+        .po-band-warm { padding: 2.25rem 1.25rem; border-radius: 24px; }
+        .po-stat-row { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+        .po-stat-value { font-size: 3rem; }
         .po-specs > div { grid-template-columns: minmax(0, 1fr); }
+        .st-key-po_footer { padding: 2rem 1.25rem; border-radius: 24px; }
     }
     </style>""")

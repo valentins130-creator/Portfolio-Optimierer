@@ -131,7 +131,7 @@ def concentration(ctx: PortfolioContext, theme) -> conc.ConcentrationReport:
     if report.exceeded:
         st.markdown("**Über den Grenzen**")
         st.markdown("  \n".join(
-            f":red-badge[{conc.KINDS[f.kind]}] **{f.group}** – {pct(f.weight)} des Depots, Grenze {pct(f.limit, 0)}, "
+            f":orange-badge[{conc.KINDS[f.kind]}] **{f.group}** – {pct(f.weight)} des Depots, Grenze {pct(f.limit, 0)}, "
             f"{pct(f.risk_share)} der Schwankung" for f in report.exceeded))
         st.caption("Vorschläge dazu weiter unten unter Lösungen.")
     else:

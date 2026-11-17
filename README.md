@@ -18,7 +18,7 @@ Die Kopfzeile darüber gilt für alle Bereiche: Depot auswählen, **Verwalten** 
 
 **Was wäre, wenn.** Unter Analysen → Klumpenrisiko verschiebt ein Regler das Gewicht einer Position; die übrigen teilen sich den Rest im bisherigen Verhältnis. Grenzen, Risikoanteile, effektive Positionen und die Schwankung rechnen sofort neu, umschaltbar zwischen „Jetzt“ und „Was wäre, wenn“.
 
-**Design.** Schlicht wie Apple, im Finance-Look: helles Grau, weiße Karten, ein Blau für alles Anklickbare, Grün und Rot nur für Gewinne und Verluste, Orange nur für überschrittene Grenzen. Karten heben sich leicht an, wenn die Maus darüberfährt. Schrift Inter (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
+**Design.** Finanz-Look in zwei Welten: Nachtblau rahmt und hebt hervor (Kopfzeile, Bühne der Startseite, Depotwert), helles kühles Grau mit weißen Karten trägt die Arbeit. Ein Indigo für alles Anklickbare, Grün und Rot nur für Gewinne und Verluste, Bernstein nur für überschrittene Grenzen, ein warmes Band auf der Startseite. Bewegung mit Zweck: Inhalte steigen beim Erscheinen auf, Balken wachsen, die Kurve zeichnet sich, die Markierung der Abschnittswahl gleitet, Kennzahlen zählen einmal hoch; bei „Bewegung reduzieren“ ist alles aus. Karten heben sich an, wenn die Maus darüberfährt. Schrift Inter (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
 
 **Konten.** Mit `ACCOUNTS=on` (im `Dockerfile` gesetzt, also auf Railway an) ist die App eine Website mit Konten: Abgemeldete sehen die Startseite mit **Anmelden** und **Konto erstellen** (E-Mail und Passwort, jeder darf sich registrieren), jedes Konto hat eigene Depots. Passwörter liegen nur als scrypt-Hash vor; nach 5 Fehlversuchen ist eine E-Mail 15 Minuten gesperrt. **Angemeldet bleiben** setzt ein Cookie mit einem zufälligen Schlüssel für 30 Tage; Abmelden oder Konto löschen macht ihn sofort ungültig. **Passwort vergessen?** schickt einen Einmal-Link per E-Mail, der eine Stunde gilt; danach enden gemerkte Anmeldungen auf anderen Geräten (Einrichtung siehe [Online betreiben](#online-betreiben-railway)). Lokal ohne die Variable startet die App wie gewohnt ohne Anmeldung.
 
@@ -190,7 +190,7 @@ ui/
   landing_view.py              Startseite für Abgemeldete: Anmeldung, Beispiel, Kennzahlen, Datenblatt, Impressum, Datenschutz
   header.py                    Depot-Auswahl, Neu, Export/Import, Löschen, Papierkorb, Einstellungen, Konto
   state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext, Ablage je Konto
-  common.py                    Designsystem (hell und dunkel), Segment-Schalter, Karten, Meldungen
+  common.py                    Designsystem (hell und dunkel, Nachtflächen), Bewegung, Segment-Schalter, Karten
   xray.py                      Karte Klumpenrisiko: jetzt/nach Umschichtung und Was wäre, wenn
   overview_view.py             Übersicht
   portfolio_view.py            Depot

@@ -6,9 +6,9 @@ Streamlit-App zur Portfolio-Analyse und -Optimierung. Antworten und UI-Texte auf
 - Tests: `pip install -r requirements-dev.txt` und dann `pytest` (läuft auch in der CI)
 - Aufbau: Rechenlogik in `portfolio_optimizer/`, Oberfläche in `ui/` (Styles in `ui/common.py`), Seiten in `views/`, Theme in `.streamlit/config.toml`
 - Bereiche: Übersicht (`ui/overview_view.py`), Depot (`ui/portfolio_view.py`), Analysen (`ui/analysis_view.py`, Lösungen aus `ui/solutions_view.py`); Abschnitte über `common.choose` (Segment-Schalter, Schlüssel `sec_…`)
-- Design: schlicht wie Apple, Finance-Look; Farben für hell und dunkel in `.streamlit/config.toml` (`[theme.light]`, `[theme.dark]`) und `ui/common.py` (`TOKENS`), Schrift Inter, Karten mit Schlüssel `card_…` reagieren auf die Maus
+- Design: Finanz-Look in zwei Welten (Referenzen Stripe und Mercury): Nachtblau für Kopfzeile, Bühne und Depotwert (`NIGHT_TOKENS`), helle Arbeitsfläche, ein Indigo für Aktionen, Grün/Rot nur für Gewinn/Verlust, Bernstein nur für überschrittene Grenzen; Farben für hell und dunkel in `.streamlit/config.toml` und `ui/common.py` (`TOKENS`), Diagrammfarben (mit dem dataviz-Validator geprüft) in `portfolio_optimizer/charts.py`; Schrift Inter, Karten mit Schlüssel `card_…` reagieren auf die Maus
 - Website mit Konten: `ACCOUNTS=on` (im `Dockerfile`), Logik in `portfolio_optimizer/accounts.py`, Oberfläche in `ui/auth.py`, Startseite für Abgemeldete in `ui/landing_view.py`; Speicher über `PORTFOLIO_DIR` oder das Railway-Volume (`RAILWAY_VOLUME_MOUNT_PATH`), Depots je Konto unter `nutzer/<id>`; „Passwort vergessen“ verschickt Einmal-Links über `portfolio_optimizer/mailer.py` (`MAIL_FROM` und `RESEND_API_KEY` oder `SMTP_HOST`, dazu `APP_URL`)
-- Bewegung: 300 ms, sanft auslaufend, nur `transform`/`opacity`, Keyframes `po-rise`/`po-grow`/`po-uncover` in `ui/common.py`; bei „Bewegung reduzieren“ aus
+- Bewegung: in der App 300 ms, sanft auslaufend, nur `transform`/`opacity` (Keyframes `po-rise`/`po-grow`/`po-draw` in `ui/common.py`); Skript `MOTION_JS` für gleitende Segment-Markierung, Einblenden beim Scrollen (`data-po-reveal`) und hochzählende Zahlen (`xray.count`); bei „Bewegung reduzieren“ aus
 
 ## Design- und UI-Arbeit
 
