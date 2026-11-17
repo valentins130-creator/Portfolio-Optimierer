@@ -242,7 +242,8 @@ TX_COLUMNS = [2.2, 1.3, 1.1, 1.3, 1]
 
 def _plan_inputs(ctx: PortfolioContext, symbol: str, cols) -> None:
     """Sparplan: Sparrate, Rhythmus, erste Ausführung und Ende (bis heute oder bis zu einem Datum)."""
-    c2, c3, c4, _ = cols
+    c2, c3, c4, c5 = cols
+    c5.empty()  # ersetzt sofort den Knopf „Erfassen“ der Kauf-Ansicht, der sonst bis zum Ende des Laufs stehen bliebe
     today = date.today()
     rate = c2.number_input("Sparrate (EUR)", min_value=1.0, value=100.0, step=25.0, format="%.2f", key="plan_rate")
     months = c3.selectbox("Rhythmus", list(INTERVALS), format_func=INTERVALS.get, key="plan_months")
