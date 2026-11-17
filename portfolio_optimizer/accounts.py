@@ -1,9 +1,10 @@
-"""Konten für den Betrieb als Website: Registrierung, Anmeldung und Sitzungen.
+"""Konten für den Betrieb als Website: Registrierung, Anmeldung, Sitzungen, Passwort vergessen.
 
 Gespeichert wird in einer SQLite-Datei (auf Railway im Volume). Passwörter liegen nie im Klartext
 vor, nur als scrypt-Hash mit zufälligem Salz. Für „Angemeldet bleiben“ bekommt der Browser ein
 zufälliges Token; gespeichert wird davon nur der SHA-256-Wert. Nach mehreren Fehlversuchen wird
-eine E-Mail-Adresse für eine Viertelstunde gesperrt.
+eine E-Mail-Adresse für eine Viertelstunde gesperrt. Links für ein neues Passwort gelten eine
+Stunde und nur einmal; auch von ihnen liegt nur der Hash in der Datenbank.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ MIN_PASSWORD = 10
 SESSION_DAYS = 30
 MAX_FAILURES = 5
 LOCK_SECONDS = 15 * 60
+RESET_MINUTES = 60  # so lange gilt ein Link für ein neues Passwort
+RESET_PER_HOUR = 3  # höchstens so viele Links je Konto und Stunde
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 
@@ -45,6 +48,12 @@ CREATE TABLE IF NOT EXISTS failures (
     at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS failures_email ON failures (email);
+CREATE TABLE IF NOT EXISTS resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created REAL NOT NULL,
+    expires REAL NOT NULL
+);
 """
 
 
@@ -156,6 +165,7 @@ class AccountStore:
     def delete(self, user_id: str) -> None:
         with self._db() as db:
             db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM resets WHERE user_id = ?", (user_id,))
             db.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     # -- Sitzungen für „Angemeldet bleiben“ -----------------------------------
@@ -182,3 +192,57 @@ class AccountStore:
     def end_session(self, token: str) -> None:
         with self._db() as db:
             db.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
+
+    # -- Passwort vergessen ---------------------------------------------------
+
+    def create_reset(self, email: str, now: float | None = None) -> tuple[Account, str] | None:
+        """Einmal-Link für ein neues Passwort: (Konto, Token) oder None.
+
+        None, wenn es zu der Adresse kein Konto gibt oder in der letzten Stunde schon
+        ``RESET_PER_HOUR`` Links angefordert wurden. Die Oberfläche antwortet in beiden Fällen
+        gleich, damit sich nicht herausfinden lässt, welche Adressen ein Konto haben.
+        """
+        email = normalize_email(email)
+        now = time.time() if now is None else now
+        with self._db() as db:
+            row = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            if row is None:
+                return None
+            db.execute("DELETE FROM resets WHERE expires < ?", (now,))
+            recent = db.execute("SELECT COUNT(*) FROM resets WHERE user_id = ? AND created > ?",
+                                (row["id"], now - 3600)).fetchone()[0]
+            if recent >= RESET_PER_HOUR:
+                return None
+            token = secrets.token_urlsafe(32)
+            db.execute("INSERT INTO resets (token_hash, user_id, created, expires) VALUES (?, ?, ?, ?)",
+                       (_token_hash(token), row["id"], now, now + RESET_MINUTES * 60))
+        return Account(row["id"], row["email"], row["created"]), token
+
+    def reset_account(self, token: str, now: float | None = None) -> Account | None:
+        """Konto zu einem Link, solange er gilt (nicht abgelaufen, noch nicht benutzt)."""
+        if not token:
+            return None
+        now = time.time() if now is None else now
+        with self._db() as db:
+            row = db.execute(
+                "SELECT u.* FROM resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ? AND r.expires > ?",
+                (_token_hash(token), now)).fetchone()
+        return Account(row["id"], row["email"], row["created"]) if row else None
+
+    def reset_password(self, token: str, password: str, now: float | None = None) -> Account:
+        """Neues Passwort über den Link setzen.
+
+        Danach gilt keiner der Links mehr, gemerkte Anmeldungen auf anderen Geräten enden und
+        eine Sperre nach Fehlversuchen ist aufgehoben.
+        """
+        if len(password) < MIN_PASSWORD:
+            raise AccountError(f"Wähle ein Passwort mit mindestens {MIN_PASSWORD} Zeichen.")
+        account = self.reset_account(token, now)
+        if account is None:
+            raise AccountError("Der Link ist abgelaufen oder wurde schon benutzt. Fordere einen neuen an.")
+        with self._db() as db:
+            db.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), account.id))
+            db.execute("DELETE FROM resets WHERE user_id = ?", (account.id,))
+            db.execute("DELETE FROM sessions WHERE user_id = ?", (account.id,))
+            db.execute("DELETE FROM failures WHERE email = ?", (account.email,))
+        return account

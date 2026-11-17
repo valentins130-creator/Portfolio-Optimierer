@@ -1,19 +1,23 @@
-"""Übersicht: Depotwert, Klumpenrisiko jetzt und nach Umschichtung, Hinweise und Schnellzugriff.
+"""Übersicht: Depotwert mit Verlauf, Klumpenrisiko jetzt und nach Umschichtung, Hinweise, Schnellzugriff.
 
 Ohne Depot führt sie mit drei Einstiegen zum ersten Depot: erfassen, importieren, Beispiel ansehen.
 """
 
 from __future__ import annotations
 
+import hashlib
 from html import escape
+from urllib.parse import quote
 
+import pandas as pd
 import streamlit as st
 
 from portfolio_optimizer import concentration as conc
+from portfolio_optimizer import performance
 from ui import header, xray
 from ui.common import page_head, show_flash
 from ui.portfolio_view import _hero
-from ui.state import RunState
+from ui.state import PortfolioContext, RunState
 
 PAGES = {"depot": "views/depot.py", "analysen": "views/analysen.py"}
 
@@ -32,6 +36,7 @@ def _try_demo() -> None:
 
 def render(run: RunState) -> None:
     show_flash()
+    _style()
     ctx = run.ctx
     if not ctx.portfolio.positions:
         _onboarding(run)
@@ -40,6 +45,7 @@ def render(run: RunState) -> None:
     left, right = st.columns([3, 2], gap="medium")
     with left, st.container(key="card_value"):
         _hero(ctx)
+        _trend(ctx)
     with right, st.container(key="card_actions"):
         st.html('<p class="po-kicker">Schnellzugriff</p>')
         if st.button("Transaktion erfassen", icon=":material/add:", width="stretch", key="go_add"):
@@ -66,6 +72,107 @@ def render(run: RunState) -> None:
         _hints(x)
 
 
+def _style() -> None:
+    st.html("""<style>
+    .po-hint-title { margin: 0.25rem 0 0; color: var(--po-ink); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
+                     letter-spacing: -0.02em; }
+    .po-hint-text { display: block; margin: 0.25rem 0 0; color: var(--po-ink2); font-size: 0.875rem; line-height: 1.5; }
+    .po-hints { display: grid; gap: 0.75rem; margin: 1rem 0 !important; padding: 0 !important; list-style: none; }
+    .po-hints li { margin: 0 !important; padding: 0 0 0 0.75rem !important; border-left: 3px solid var(--po-accent); }
+    .po-hint-name { display: block; color: var(--po-ink); font-size: 0.9375rem; font-weight: 600; line-height: 1.4; }
+
+    /* Verlauf unter dem Depotwert: Fläche und Linie als Maske in der Farbe der Entwicklung */
+    .po-trend { margin: 1.5rem 0 0; }
+    .po-trend-head { display: flex; justify-content: space-between; gap: 1rem; color: var(--po-muted);
+                     font-size: 0.8125rem; line-height: 1.4; }
+    .po-trend-change { color: var(--po-ink2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .po-trend-change.is-up { color: var(--po-up); }
+    .po-trend-change.is-down { color: var(--po-down); }
+    .po-spark { position: relative; height: 64px; margin-top: 0.5rem; color: var(--po-chart-ok); overflow: hidden; }
+    .po-spark.is-up { color: var(--po-up); }
+    .po-spark.is-down { color: var(--po-down); }
+    .po-spark > span { position: absolute; inset: 0; background: currentColor;
+                       -webkit-mask: var(--m) 0 0 / 100% 100% no-repeat; mask: var(--m) 0 0 / 100% 100% no-repeat; }
+    .po-spark-area { opacity: 0.1; }
+    /* Die Kurve zeichnet sich beim ersten Erscheinen von links nach rechts (eine Abdeckung schrumpft) */
+    .po-spark::after { content: ""; position: absolute; inset: 0; background: var(--po-card); transform-origin: right;
+                       animation: po-uncover 300ms cubic-bezier(0.16, 1, 0.3, 1) 150ms forwards; }
+
+    /* Schnellzugriff als ruhige Zeilen: Symbol, Text, Pfeil; beim Überfahren eine Fläche */
+    .st-key-card_actions { gap: 0.125rem; }
+    .st-key-card_actions [data-testid="stButton"] button {
+        justify-content: flex-start; min-height: 3rem; padding: 0 0.75rem; border: 0; border-radius: 12px;
+        background: transparent; box-shadow: none; color: var(--po-ink); }
+    .st-key-card_actions [data-testid="stButton"] button > div { justify-content: flex-start; }
+    .st-key-card_actions [data-testid="stButton"] button p { font-weight: 500; }
+    .st-key-card_actions [data-testid="stButton"] button [data-testid="stIconMaterial"] { color: var(--po-primary); }
+    .st-key-card_actions [data-testid="stButton"] button::after {
+        content: "›"; content: "›" / ""; margin-left: auto; padding-left: 1rem; color: var(--po-muted);
+        font-size: 1.375rem; line-height: 1; transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1); }
+    .st-key-card_actions [data-testid="stButton"] button:focus-visible { outline: 2px solid var(--po-primary);
+                                                                         outline-offset: 2px; }
+    @media (hover: hover) {
+        .st-key-card_actions [data-testid="stButton"] button:hover { background: var(--po-sunken); }
+        .st-key-card_actions [data-testid="stButton"] button:hover::after { transform: translateX(3px); }
+    }
+
+    .po-start-title { margin: 1rem 0 0; color: var(--po-ink); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
+                      letter-spacing: -0.02em; }
+    .po-start-text { margin: 0.5rem 0 1rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.5; min-height: 4.5em; }
+    [class*="st-key-card_start_"] { height: 100%; }
+    </style>""")
+
+
+def _performance(ctx: PortfolioContext) -> performance.Performance | None:
+    """Wertentwicklung des Depots; in der Sitzung gemerkt, solange sich Depot und Kurse nicht ändern."""
+    if ctx.prices.empty:
+        return None
+    key = hashlib.sha1(f"{ctx.provider}|{ctx.portfolio.to_json()}|{ctx.prices.shape}|{ctx.prices.index[-1]}"
+                       .encode()).hexdigest()
+    memo = st.session_state.get("_perf")
+    if memo and memo[0] == key:
+        return memo[1]
+    perf = performance.compute(ctx.portfolio, ctx.prices)
+    st.session_state["_perf"] = (key, perf)
+    return perf
+
+
+def _spark_mask(points: list[tuple[float, float]], closed: bool) -> str:
+    """Linie (oder Fläche darunter) als SVG-Maske; die Farbe kommt aus dem Stylesheet."""
+    path = "M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in points)
+    shape = (f"<path d='{path} L600 100 L0 100 Z' fill='black'/>" if closed else
+             f"<path d='{path}' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' "
+             "stroke-linecap='round' vector-effect='non-scaling-stroke'/>")
+    svg = f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 100' preserveAspectRatio='none'>{shape}</svg>"
+    return f"url('data:image/svg+xml,{quote(svg)}')"
+
+
+def _trend(ctx: PortfolioContext) -> None:
+    """Zeitgewichtete Wertentwicklung der letzten zwölf Monate als kleine Kurve unter dem Depotwert."""
+    perf = _performance(ctx)
+    if perf is None or len(perf.twr) < 20:
+        return
+    twr = perf.twr
+    start = twr.index[-1] - pd.DateOffset(years=1)
+    window = twr[twr.index >= start]
+    period = "12 Monate" if twr.index[0] <= start else f"seit {window.index[0]:%d.%m.%Y}"
+    change = float(window.iloc[-1] / window.iloc[0] - 1)
+    step = max(1, len(window) // 150)
+    sample = pd.concat([window.iloc[::step], window.iloc[-1:]])
+    sample = sample[~sample.index.duplicated(keep="last")]
+    low, high = float(sample.min()), float(sample.max())
+    span = (high - low) or 1.0
+    points = [(600 * i / (len(sample) - 1), 6 + 88 * (1 - (float(v) - low) / span)) for i, v in enumerate(sample)]
+    tone, arrow = ("is-up", "▲ ") if change > 0 else ("is-down", "▼ ") if change < 0 else ("", "")
+    value = ("+" if change > 0 else "") + xray.pct_nb(change, 1)
+    st.html(f'<figure class="po-trend"><figcaption class="po-trend-head">'
+            f'<span>Zeitgewichtete Wertentwicklung, {period}</span>'
+            f'<span class="po-trend-change {tone}"><span aria-hidden="true">{arrow}</span>{value}</span></figcaption>'
+            f'<div class="po-spark {tone}" role="img" aria-label="Verlauf, {period}">'
+            f'<span class="po-spark-area" style="--m: {_spark_mask(points, True)}"></span>'
+            f'<span class="po-spark-line" style="--m: {_spark_mask(points, False)}"></span></div></figure>')
+
+
 def _hints(x: xray.XRay) -> None:
     """Die wichtigsten Befunde in Worten, je mit dem Weg zur Lösung."""
     over = [r for r in x.rows if r.status[0] == "over"]
@@ -88,14 +195,6 @@ def _hints(x: xray.XRay) -> None:
                     f"{'alle Grenzen ein' if x.exceeded[1] == 0 else 'mehr Grenzen ein'}.</p>")
         if st.button("Umschichtung ansehen", type="primary", icon=":material/swap_horiz:", key="go_rebalance"):
             _go("analysen", sec_analyse="cluster")
-    st.html("""<style>
-    .po-hint-title { margin: 0.25rem 0 0; color: var(--po-ink); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
-                     letter-spacing: -0.02em; }
-    .po-hint-text { display: block; margin: 0.25rem 0 0; color: var(--po-ink2); font-size: 0.875rem; line-height: 1.5; }
-    .po-hints { display: grid; gap: 0.75rem; margin: 1rem 0 !important; padding: 0 !important; list-style: none; }
-    .po-hints li { margin: 0 !important; padding: 0 0 0 0.75rem !important; border-left: 3px solid var(--po-accent); }
-    .po-hint-name { display: block; color: var(--po-ink); font-size: 0.9375rem; font-weight: 600; line-height: 1.4; }
-    </style>""")
 
 
 def _onboarding(run: RunState) -> None:
@@ -125,12 +224,6 @@ def _onboarding(run: RunState) -> None:
         else:
             st.button("Offline-Demo ausprobieren", width="stretch", key="start_demo", on_click=_try_demo,
                       help="Wechselt zu fiktiven Wertpapieren. Zurück zu echten Kursen geht es unter Einstellungen.")
-    st.html("""<style>
-    .po-start-title { margin: 1rem 0 0; color: var(--po-ink); font-size: 1.25rem; font-weight: 600; line-height: 1.25;
-                      letter-spacing: -0.02em; }
-    .po-start-text { margin: 0.5rem 0 1rem; color: var(--po-ink2); font-size: 0.9375rem; line-height: 1.5; min-height: 4.5em; }
-    [class*="st-key-card_start_"] { height: 100%; }
-    </style>""")
     st.html('<div class="po-sub-head"><h2>So sieht deine Analyse aus</h2><p class="po-intro">Am fiktiven '
             "Beispieldepot: Klumpenrisiko jetzt und nach der vorgeschlagenen Umschichtung.</p></div>")
     try:

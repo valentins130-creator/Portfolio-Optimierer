@@ -58,8 +58,8 @@ def main() -> None:
     common.inject_style()
     common.page_meta()
     auth.sync_cookie()
-    if auth.enabled() and auth.current_user() is None:
-        landing_view.render()  # Startseite mit Anmelden und Konto erstellen
+    if auth.enabled() and (auth.current_user() is None or auth.reset_token()):
+        landing_view.render()  # Startseite mit Anmelden, Konto erstellen und neuem Passwort
         return
     page = st.navigation(PAGES, position="top")
     settings = header.render()

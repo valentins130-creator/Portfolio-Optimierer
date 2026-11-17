@@ -66,7 +66,7 @@ def _card_heads(at) -> list[str]:
 
 def _status(card: str, name: str) -> str:
     """Zustand (over/near/ok) der Zeile ``name`` in einer Karte."""
-    return re.search(r'<li class="po-meter is-(\w+)"><div class="po-meter-label"><span class="po-meter-name">'
+    return re.search(r'<li class="po-meter is-(\w+)"[^>]*><div class="po-meter-label"><span class="po-meter-name">'
                      + re.escape(name), card).group(1)
 
 
@@ -200,6 +200,62 @@ def test_market_data_choice_is_remembered_per_account(tmp_path, monkeypatch):
     # nach dem Anmelden wieder die Offline-Demo mit Annas Depot, nicht ein leeres Yahoo-Depot
     assert at.session_state["set_provider"] == "demo" and "10 Positionen" in _card_heads(at)[0]
     assert "marktdaten" not in at.selectbox(key="pf_select_demo").options[0].lower()
+
+
+def test_forgotten_password_is_reset_with_a_one_time_link(tmp_path, monkeypatch):
+    import ui.auth as auth_ui
+
+    mails = []
+    monkeypatch.setenv("MAIL_FROM", "noreply@beispiel.de")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(auth_ui.mailer, "send", lambda to, subject, text: mails.append((to, text)))
+    monkeypatch.setattr(auth_ui, "_in_background", lambda task, *args: task(*args))
+    at = _app(tmp_path, monkeypatch, "demo", page="uebersicht", accounts=True)
+    _register(at, "anna@beispiel.de")
+    _button(at, "Abmelden").click().run()
+    at.text_input(key="login_email").set_value("anna@beispiel.de")
+    at.text_input(key="login_password").set_value("vergessen-vergessen")
+    _button(at, "Anmelden").click().run()
+    _button(at, "Passwort vergessen?").click().run()
+    assert at.text_input(key="forgot_email").value == "anna@beispiel.de"  # vom Anmeldeversuch übernommen
+    _button(at, "Link senden").click().run()
+    _assert_clean(at)
+    assert any("ist jetzt ein Link unterwegs" in s.value for s in at.success)
+    [(to, text)] = mails
+    token = re.search(r"\?reset=([\w-]+)", text).group(1)
+    assert to == "anna@beispiel.de"
+
+    # Den Link in einem neuen Tab öffnen
+    link = AppTest.from_file(APP, default_timeout=240)
+    link.query_params["reset"] = token
+    link.run()
+    _assert_clean(link)
+    link.text_input(key="reset_password").set_value("ganz-neues-passwort")
+    _button(link, "Passwort speichern").click().run()
+    _assert_clean(link)
+    assert link.session_state["user"].email == "anna@beispiel.de" and "reset" not in link.query_params
+
+    again = AppTest.from_file(APP, default_timeout=240)
+    again.query_params["reset"] = token
+    again.run()
+    assert any("Link abgelaufen" in e.proto.body for e in again.html)  # nur einmal gültig
+
+    _button(at, "Zurück zur Anmeldung").click().run()
+    at.text_input(key="login_email").set_value("anna@beispiel.de")
+    at.text_input(key="login_password").set_value("ganz-neues-passwort")
+    _button(at, "Anmelden").click().run()
+    assert at.session_state["user"].email == "anna@beispiel.de"
+
+
+def test_forgotten_password_without_mail_setup_says_so(tmp_path, monkeypatch):
+    for name in ("MAIL_FROM", "RESEND_API_KEY", "SMTP_HOST"):
+        monkeypatch.delenv(name, raising=False)
+    at = _app(tmp_path, monkeypatch, "demo", page="uebersicht", accounts=True)
+    _button(at, "Passwort vergessen?").click().run()
+    at.text_input(key="forgot_email").set_value("niemand@beispiel.de")
+    _button(at, "Link senden").click().run()
+    _assert_clean(at)
+    assert any("noch nicht eingerichtet" in w.value for w in at.warning)
 
 
 def test_deleting_the_account_removes_its_depots(tmp_path, monkeypatch):

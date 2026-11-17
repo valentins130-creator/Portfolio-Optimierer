@@ -265,11 +265,11 @@ def meters_html(x: XRay, i: int) -> str:
     scale = max(0.2, math.ceil(max(max(r.weight) for r in x.rows) * 10 + 1e-9) / 10,
                 max(r.limit for r in x.rows) + 0.1)
     items = []
-    for r in x.rows:
+    for n, r in enumerate(x.rows):
         status = r.status[i]
         risk = pct_nb(r.risk[i]) if r.risk[i] is not None else "–"
         items.append(
-            f'<li class="po-meter is-{status}">'
+            f'<li class="po-meter is-{status}" style="--i: {n}">'
             f'<div class="po-meter-label"><span class="po-meter-name">{escape(r.label)}</span>'
             f'<span class="po-meter-meta">{conc.KINDS[r.kind]} · Grenze {pct_nb(r.limit, 0)} · '
             f"Risikoanteil {risk}</span></div>"
@@ -333,7 +333,7 @@ def style() -> None:
     .po-stats dt { flex: 1; color: var(--po-muted); font-size: 0.75rem; line-height: 1.4; }
     .po-stats dd { margin: 0.25rem 0 0; color: var(--po-ink); font-size: 1.5rem; font-weight: 600; line-height: 1.15;
                    letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-    .po-of { color: var(--po-muted); font-size: 0.875rem; font-weight: 400; letter-spacing: 0; }
+    .po-of { color: var(--po-muted); font-size: 0.875rem; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
     .po-meters { display: grid; gap: 0.25rem; margin: 1rem 0 0 !important; padding: 0 !important; list-style: none; }
     .po-meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label value" "bar bar";
                 gap: 0.5rem 1rem; align-items: center; margin: 0 -0.75rem !important; padding: 0.625rem 0.75rem !important;
@@ -351,6 +351,11 @@ def style() -> None:
     .po-meter-track { position: absolute; inset: 5px 0; overflow: hidden; border-radius: 3px; background: var(--po-chart-track); }
     .po-meter-fill { position: absolute; inset: 0; border-radius: 0 3px 3px 0; background: var(--po-chart-ok);
                      transform: translateX(calc((var(--v) - 1) * 100%)); }
+    /* Zeilen erscheinen nacheinander, die Balken wachsen von links (auch beim Umschalten der Zustände) */
+    .po-meter { animation: po-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+                animation-delay: calc(var(--i, 0) * 40ms); }
+    .po-meter-fill { animation: po-grow 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+                     animation-delay: calc(var(--i, 0) * 40ms + 80ms); }
     .po-meter.is-over .po-meter-fill { background: var(--po-chart-warn); }
     .po-meter-limit { position: absolute; top: 0; bottom: 0; left: calc(var(--l) * 100%); width: 2px; margin-left: -1px;
                       border-radius: 1px; background: var(--po-ink); box-shadow: 0 0 0 2px var(--po-card); }

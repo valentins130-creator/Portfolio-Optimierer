@@ -8,7 +8,6 @@ Grün und Rot nur für Gewinne und Verluste, Orange nur für überschrittene Gre
 from __future__ import annotations
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from portfolio_optimizer import charts
 
@@ -57,15 +56,12 @@ def inject_style() -> None:
     st.html(f"""<style>
     .stApp {{ {css_tokens()} }}
 
-    /* Kopfzeile: durchscheinend wie bei Apple, mit fester Kante; ohne Unschärfe-Unterstützung deckend */
-    header[data-testid="stHeader"] {{
-        background: color-mix(in srgb, var(--po-bg) 78%, transparent);
-        -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
-        border-bottom: 1px solid var(--po-line);
-    }}
-    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {{
-        header[data-testid="stHeader"] {{ background: var(--po-bg); }}
-    }}
+    /* Kopfzeile: deckend in Hintergrundfarbe mit feiner Kante, ohne Milchglas */
+    header[data-testid="stHeader"] {{ background: var(--po-bg); border-bottom: 1px solid var(--po-line); }}
+    /* Hauptmenü (⋮): nur Hell, Dunkel, System; ohne Drucken, Bildschirmaufnahme und Versionszeile */
+    [data-testid="stMainMenuItem-print"], [data-testid="stMainMenuItem-recordScreencast"],
+    [data-testid="stMainMenuPopover"] [data-testid="stMainMenuDivider"],
+    [data-testid="stMainMenuPopover"] [data-testid="stMainMenuList"] ~ div {{ display: none !important; }}
     /* Bildmarke als Bild, Name als echter Text (lesbar auch im dunklen Design) */
     :has(> img[data-testid="stHeaderLogo"]) {{
         display: flex; align-items: center; gap: 0.75rem; width: auto !important; max-width: none !important;
@@ -130,6 +126,10 @@ def inject_style() -> None:
             display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); width: 100%;
             border-radius: 26px; }}
         button[data-variant="segmented_control"] {{ padding: 0 0.75rem; }}
+        /* lange Beschriftungen („Nach Umschichtung“) umbrechen statt mit „…“ abgeschnitten zu werden */
+        button[data-variant="segmented_control"], button[data-variant="segmented_control"] * {{
+            white-space: normal !important; text-overflow: clip !important; }}
+        button[data-variant="segmented_control"] p {{ line-height: 1.2; text-align: center; text-wrap: balance; }}
     }}
 
     /* Karten: Streamlit-Container mit Schlüssel „card_…“ und HTML-Karten (.po-card).
@@ -167,35 +167,58 @@ def inject_style() -> None:
     /* Depotwert */
     .po-hero {{ margin: 0 0 0.5rem; }}
     .po-hero .po-label {{ color: var(--po-muted); font-size: 0.875rem; font-weight: 500; }}
-    .po-hero .po-value {{ color: var(--po-ink); font-size: 3.2rem; font-weight: 600; line-height: 1.05;
+    .po-hero .po-value {{ color: var(--po-ink); font-size: 3.2rem; font-weight: 560; line-height: 1.05;
                          letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }}
     /* Teile umbrechen als Ganzes; der Trennpunkt sitzt in der Lücke und fällt am Zeilenanfang weg
        (er liegt dort links außerhalb und wird abgeschnitten) */
     .po-hero .po-sub {{ display: flex; flex-wrap: wrap; column-gap: 1.1rem; overflow: hidden; color: var(--po-ink2);
                        font-size: 0.9375rem; line-height: 1.5; margin-top: 0.5rem; }}
     .po-hero .po-sub > span {{ position: relative; white-space: nowrap; }}
-    .po-hero .po-sub > span + span::before {{ content: "·"; position: absolute; left: -0.72rem; color: var(--po-muted); }}
+    .po-hero .po-sub > span + span::before {{ content: "·"; content: "·" / ""; position: absolute; left: -0.72rem;
+                                              color: var(--po-muted); }}
     .po-up {{ color: var(--po-up); font-weight: 600; }}
     .po-down {{ color: var(--po-down); font-weight: 600; }}
 
     /* Seitenkopf: kleine Zeile darüber, große Überschrift */
     .po-page-head {{ margin: 0 0 1.5rem; }}
     .po-page-head .po-eyebrow {{ margin: 0 0 0.25rem; color: var(--po-muted); font-size: 0.875rem; font-weight: 500; }}
-    .po-page-head h1 {{ margin: 0; padding: 0; font-size: 2.5rem; font-weight: 600; line-height: 1.1;
+    .po-page-head h1 {{ margin: 0; padding: 0; font-size: 2.5rem; font-weight: 560; line-height: 1.1;
                        letter-spacing: -0.03em; color: var(--po-ink); }}
     .po-page-head p.po-intro {{ margin: 0.75rem 0 0; max-width: 60ch; color: var(--po-ink2); font-size: 1.0625rem;
                                line-height: 1.5; }}
     .po-sub-head {{ margin: 2.5rem 0 0.5rem; }}
-    .po-sub-head h2 {{ margin: 0; padding: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.2;
+    .po-sub-head h2 {{ margin: 0; padding: 0; font-size: 1.5rem; font-weight: 580; line-height: 1.2;
                       letter-spacing: -0.02em; color: var(--po-ink); }}
     .po-sub-head p.po-intro {{ margin: 0.5rem 0 0; max-width: 65ch; color: var(--po-ink2); font-size: 0.9375rem;
                               line-height: 1.5; }}
     @media (max-width: 767.98px) {{ .po-page-head h1 {{ font-size: 2rem; }} .po-hero .po-value {{ font-size: 2.5rem; }} }}
 
+    /* Mehrere Angaben in einer Zeile, getrennt durch Punkte; der Punkt sitzt in der Lücke und fällt am
+       Zeilenanfang weg (er liegt dort links außerhalb und wird abgeschnitten) */
+    .po-dots {{ display: flex; flex-wrap: wrap; column-gap: 1.1rem; overflow: hidden; }}
+    .po-dots > span {{ position: relative; white-space: nowrap; }}
+    .po-dots > span + span::before {{ content: "·"; content: "·" / ""; position: absolute; left: -0.72rem;
+                                     color: var(--po-muted); }}
+    /* nur für Screenreader */
+    .po-sr {{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }}
+
+    /* Bewegung: kurz und mit Zweck (300 ms, sanft auslaufend, nur transform und opacity).
+       Neue Inhalte steigen beim Erscheinen 6 px auf, Balken wachsen von links, Kurven zeichnen sich
+       von links nach rechts. Gilt nur beim ersten Zeichnen, nicht bei jedem Klick. */
+    @keyframes po-rise {{ from {{ opacity: 0; transform: translateY(6px); }} }}
+    @keyframes po-grow {{ from {{ transform: translateX(-100%); }} }}
+    @keyframes po-uncover {{ to {{ transform: scaleX(0); }} }}
+    .po-page-head, .po-hero, [class*="st-key-card_"], .po-rise {{
+        animation: po-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+        animation-delay: calc(var(--i, 0) * 60ms); }}
+
     @media (prefers-reduced-motion: reduce) {{
         [class*="st-key-card_"], .po-card, [data-testid="stMetric"], [data-testid^="stBaseButton"] {{ transition: none; }}
         [class*="st-key-card_"]:hover, .po-card:hover, [data-testid="stMetric"]:hover,
         [data-testid^="stBaseButton"]:active {{ transform: none; }}
+        [class*="po-"], [class*="po-"]::before, [class*="po-"]::after, [class*="st-key-card_"] {{
+            animation: none !important; transition: none !important; }}
+        .po-spark::after {{ display: none; }}
     }}
     </style>""")
 
@@ -209,7 +232,7 @@ def page_meta() -> None:
     """
     bg = TOKENS["bg"][1 if is_dark() else 0]
     with st.container(key="po_meta"):
-        components.html(f"""<script>
+        st.iframe(f"""<script>
         const doc = window.parent.document;
         doc.documentElement.lang = "de";
         let meta = doc.querySelector('meta[name="theme-color"]');
@@ -221,7 +244,7 @@ def page_meta() -> None:
         }});
         fix();
         new MutationObserver(fix).observe(doc.body, {{ childList: true, subtree: true }});
-        </script>""", height=0)
+        </script>""", width=1, height=1, tab_index=-1)
 
 
 def page_head(title: str, eyebrow: str = "", intro: str = "") -> None:

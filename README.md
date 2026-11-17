@@ -20,7 +20,7 @@ Die Kopfzeile darüber gilt für alle Bereiche: Depot auswählen, **Verwalten** 
 
 **Design.** Schlicht wie Apple, im Finance-Look: helles Grau, weiße Karten, ein Blau für alles Anklickbare, Grün und Rot nur für Gewinne und Verluste, Orange nur für überschrittene Grenzen. Karten heben sich leicht an, wenn die Maus darüberfährt. Schrift Inter (von der App selbst ausgeliefert, ohne Google-Server). Die App folgt der hellen oder dunklen Systemeinstellung; umschalten lässt sich oben rechts im Menü (⋮ → System, Light, Dark).
 
-**Konten.** Mit `ACCOUNTS=on` (im `Dockerfile` gesetzt, also auf Railway an) ist die App eine Website mit Konten: Abgemeldete sehen die Startseite mit **Anmelden** und **Konto erstellen** (E-Mail und Passwort, jeder darf sich registrieren), jedes Konto hat eigene Depots. Passwörter liegen nur als scrypt-Hash vor; nach 5 Fehlversuchen ist eine E-Mail 15 Minuten gesperrt. **Angemeldet bleiben** setzt ein Cookie mit einem zufälligen Schlüssel für 30 Tage; Abmelden oder Konto löschen macht ihn sofort ungültig. Lokal ohne die Variable startet die App wie gewohnt ohne Anmeldung.
+**Konten.** Mit `ACCOUNTS=on` (im `Dockerfile` gesetzt, also auf Railway an) ist die App eine Website mit Konten: Abgemeldete sehen die Startseite mit **Anmelden** und **Konto erstellen** (E-Mail und Passwort, jeder darf sich registrieren), jedes Konto hat eigene Depots. Passwörter liegen nur als scrypt-Hash vor; nach 5 Fehlversuchen ist eine E-Mail 15 Minuten gesperrt. **Angemeldet bleiben** setzt ein Cookie mit einem zufälligen Schlüssel für 30 Tage; Abmelden oder Konto löschen macht ihn sofort ungültig. **Passwort vergessen?** schickt einen Einmal-Link per E-Mail, der eine Stunde gilt; danach enden gemerkte Anmeldungen auf anderen Geräten (Einrichtung siehe [Online betreiben](#online-betreiben-railway)). Lokal ohne die Variable startet die App wie gewohnt ohne Anmeldung.
 
 ## Schnellstart
 
@@ -48,7 +48,8 @@ Die App läuft als Website mit Konten, zum Beispiel auf [Railway](https://railwa
 2. **Speicher anhängen:** Ein **Volume** anlegen und an den Service hängen, Mount Path zum Beispiel `/data`. Dort liegen die Konten (`konten.sqlite`), die Depots je Konto (`nutzer/…`) und die gespeicherten Kurse; Railway setzt dafür `RAILWAY_VOLUME_MOUNT_PATH`. **Ohne Volume sind Konten und Depots nach jedem Neustart weg.**
 3. **Adresse:** Unter **Settings → Networking** mit **Generate Domain** eine öffentliche Adresse erzeugen.
 4. **Optional:** Unter **Settings → Deploy** als Healthcheck Path `/_stcore/health` eintragen.
-5. **Vor dem Start:** Impressum und Datenschutz (Fußzeile der Startseite, `ui/landing_view.py`) mit den eigenen Angaben ausfüllen und prüfen lassen.
+5. **E-Mails für „Passwort vergessen“:** Unter **Variables** den Absender `MAIL_FROM` setzen (z. B. `Portfolio-Optimierer <noreply@deine-domain.de>`) und entweder `RESEND_API_KEY` (Versand über [Resend](https://resend.com), läuft über HTTPS) oder `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` für einen SMTP-Server. Empfohlen ist außerdem `APP_URL` mit der öffentlichen Adresse (z. B. `https://dein-name.up.railway.app`), damit der Link in der E-Mail immer dorthin zeigt. Ohne Versand meldet die App, dass er nicht eingerichtet ist, und schreibt den Link ins Deploy-Log, das nur du siehst. Railway sperrt ausgehendes SMTP je nach Tarif; dann den Weg über Resend nehmen.
+6. **Vor dem Start:** Impressum und Datenschutz (Fußzeile der Startseite, `ui/landing_view.py`) mit den eigenen Angaben ausfüllen und prüfen lassen.
 
 Nach jedem Push auf den gewählten Branch baut Railway neu. Die SQLite-Datei verträgt genau eine laufende Instanz; mehrere Replikate bräuchten eine Datenbank wie PostgreSQL. Yahoo begrenzt Abfragen und reagiert auf Cloud-Server eher mit „Too Many Requests“; die App rechnet dann mit den gespeicherten Kursen weiter (siehe [Fehlende Kurse](#fehlende-kurse)).
 
@@ -163,8 +164,8 @@ app.py                         Einstieg: Konten, Kopfzeile und Navigation (Über
 Dockerfile                     Container für die Website (z. B. Railway), mit Konten
 views/                         Die Seiten der Navigation (uebersicht.py, depot.py, analysen.py)
 ui/
-  auth.py                      Konten: Anmelden, Konto erstellen, angemeldet bleiben, Abmelden, Konto löschen
-  landing_view.py              Startseite für Abgemeldete mit Anmeldung, Beispiel, Funktionen, Impressum, Datenschutz
+  auth.py                      Konten: Anmelden, Konto erstellen, angemeldet bleiben, Passwort vergessen, Abmelden, Konto löschen
+  landing_view.py              Startseite für Abgemeldete: Anmeldung, Beispiel, Kennzahlen, Datenblatt, Impressum, Datenschutz
   header.py                    Depot-Auswahl, Neu, Export/Import, Löschen, Papierkorb, Einstellungen, Konto
   state.py                     Einstellungen, zwischengespeicherte Marktdaten, Portfolio-Kontext, Ablage je Konto
   common.py                    Designsystem (hell und dunkel), Segment-Schalter, Karten, Meldungen
@@ -188,7 +189,8 @@ portfolio_optimizer/
   rebalancing.py               Zielgewichte unter Grenzen, Käufe und Verkäufe
   charts.py                    Plotly-Diagramme
   formatting.py                Deutsche Zahlenformate
-  accounts.py                  Konten und Sitzungen (SQLite, scrypt), Sperre nach Fehlversuchen
+  accounts.py                  Konten und Sitzungen (SQLite, scrypt), Sperre nach Fehlversuchen, Links für neue Passwörter
+  mailer.py                    E-Mail-Versand über die Resend-API oder SMTP
 static/                        Bildmarke und Schrift (Inter, SIL Open Font License), von der App ausgeliefert
 tests/                         pytest-Suite, inkl. Rauchtests der Oberfläche
 ```

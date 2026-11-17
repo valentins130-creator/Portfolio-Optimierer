@@ -7,6 +7,8 @@ import pytest
 from portfolio_optimizer.accounts import (
     LOCK_SECONDS,
     MAX_FAILURES,
+    RESET_MINUTES,
+    RESET_PER_HOUR,
     AccountError,
     AccountStore,
     hash_password,
@@ -83,3 +85,44 @@ def test_deleting_an_account_removes_it_and_its_sessions(store):
     assert store.get(account.id) is None and store.session_user(token) is None
     with pytest.raises(AccountError):
         store.authenticate("anna@beispiel.de", "sehr-geheim-123")
+
+
+def test_reset_link_sets_a_new_password_once(store):
+    account = store.register("anna@beispiel.de", "sehr-geheim-123")
+    session = store.create_session(account.id, now=0.0)
+    result = store.create_reset(" Anna@Beispiel.de ", now=100.0)
+    assert result is not None and result[0].id == account.id
+    token = result[1]
+    assert store.reset_account(token, now=200.0).id == account.id
+    with pytest.raises(AccountError, match="mindestens 10 Zeichen"):
+        store.reset_password(token, "kurz", now=200.0)
+    store.reset_password(token, "ganz-neues-passwort", now=200.0)
+    assert store.authenticate("anna@beispiel.de", "ganz-neues-passwort").id == account.id
+    with pytest.raises(AccountError):
+        store.authenticate("anna@beispiel.de", "sehr-geheim-123")
+    # der Link gilt nur einmal, gemerkte Anmeldungen enden
+    assert store.reset_account(token, now=300.0) is None
+    with pytest.raises(AccountError, match="abgelaufen oder wurde schon benutzt"):
+        store.reset_password(token, "noch-ein-passwort", now=300.0)
+    assert store.session_user(session, now=300.0) is None
+
+
+def test_reset_link_expires_and_is_limited_per_hour(store):
+    store.register("anna@beispiel.de", "sehr-geheim-123")
+    assert store.create_reset("bert@beispiel.de", now=0.0) is None  # kein Konto, keine Mail
+    token = store.create_reset("anna@beispiel.de", now=0.0)[1]
+    assert store.reset_account(token, now=RESET_MINUTES * 60 + 1) is None
+    for i in range(RESET_PER_HOUR - 1):
+        assert store.create_reset("anna@beispiel.de", now=10.0 + i) is not None
+    assert store.create_reset("anna@beispiel.de", now=20.0) is None  # Grenze je Stunde erreicht
+    assert store.create_reset("anna@beispiel.de", now=3700.0) is not None
+
+
+def test_reset_lifts_the_lock_after_failed_logins(store):
+    store.register("anna@beispiel.de", "sehr-geheim-123")
+    for _ in range(MAX_FAILURES):
+        with pytest.raises(AccountError):
+            store.authenticate("anna@beispiel.de", "falsch-falsch", now=1000.0)
+    token = store.create_reset("anna@beispiel.de", now=1000.0)[1]
+    store.reset_password(token, "ganz-neues-passwort", now=1001.0)
+    assert store.authenticate("anna@beispiel.de", "ganz-neues-passwort", now=1002.0).email
