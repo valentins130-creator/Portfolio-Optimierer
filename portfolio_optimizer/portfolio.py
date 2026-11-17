@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import calendar
 import io
 import json
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -13,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .data import _parse_number_column
+from .formatting import num
 from .market import BASE_CURRENCY, DIVERSIFIED, FUND_COUNTRY, UNKNOWN, SecurityInfo, major_currency
 
 
@@ -35,21 +38,28 @@ def parse_date(value) -> date | None:
 
 @dataclass
 class Transaction:
-    """Ein Kauf oder Verkauf. Kurs je Stück in Euro, wie im Depotauszug."""
+    """Ein Kauf oder Verkauf. Kurs je Stück in Euro, wie im Depotauszug.
+
+    ``plan``: Kennung des Sparplans, aus dem dieser Kauf stammt (sonst ``None``).
+    """
 
     symbol: str
     kind: str = BUY
     shares: float = 0.0
     price: float | None = None
     date: date | None = None
+    plan: str | None = None
 
     @property
     def amount(self) -> float | None:
         return self.shares * self.price if self.price else None
 
     def to_dict(self) -> dict:
-        return {"symbol": self.symbol, "kind": self.kind, "shares": self.shares, "price": self.price,
-                "date": self.date.isoformat() if self.date else None}
+        out = {"symbol": self.symbol, "kind": self.kind, "shares": self.shares, "price": self.price,
+               "date": self.date.isoformat() if self.date else None}
+        if self.plan:
+            out["plan"] = self.plan
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> Transaction:
@@ -60,7 +70,73 @@ class Transaction:
             shares=float(data.get("shares", 0)),
             price=float(price) if price not in (None, "") else None,
             date=parse_date(data.get("date")),
+            plan=data.get("plan") or None,
         )
+
+
+# ---------------------------------------------------------------------------
+# Sparpläne
+# ---------------------------------------------------------------------------
+
+INTERVALS = {1: "monatlich", 2: "alle 2 Monate", 3: "vierteljährlich", 6: "halbjährlich", 12: "jährlich"}
+GRACE_DAYS = 10  # liegt der nächste Handelstag weiter hinter dem Termin, entfällt die Ausführung
+
+
+def add_months(day: date, months: int) -> date:
+    """Gleicher Tag ``months`` Monate später; gibt es ihn nicht (31.), dann der Monatsletzte."""
+    index = day.month - 1 + months
+    year, month = day.year + index // 12, index % 12 + 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+@dataclass
+class SavingsPlan:
+    """Regelmäßiger Kauf für einen festen Betrag.
+
+    Ausgeführt wird am Termin zum Schlusskurs, an handelsfreien Tagen am nächsten Handelstag.
+    Termine: ``start`` und dann alle ``months`` Monate am selben Tag im Monat, bis ``end``
+    (``None``: läuft weiter, neue Termine kommen mit der Zeit dazu). ``done_until`` ist der letzte
+    abgearbeitete Termin; einzeln gelöschte Ausführungen entstehen so nicht neu.
+    """
+
+    symbol: str
+    rate: float  # Euro je Ausführung
+    start: date
+    months: int = 1
+    end: date | None = None
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:10])
+    done_until: date | None = None
+
+    @property
+    def rhythm(self) -> str:
+        return INTERVALS.get(self.months, f"alle {self.months} Monate")
+
+    @property
+    def label(self) -> str:
+        return f"{num(self.rate, 0 if float(self.rate).is_integer() else 2)} € {self.rhythm}"
+
+    def running(self, today: date | None = None) -> bool:
+        return self.end is None or self.end >= (today or date.today())
+
+    def due_dates(self, until: date) -> list[date]:
+        """Termine von ``start`` bis einschließlich ``until`` (und höchstens bis ``end``)."""
+        last = min(until, self.end) if self.end else until
+        out, k = [], 0
+        while (due := add_months(self.start, k * self.months)) <= last:
+            out.append(due)
+            k += 1
+        return out
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "symbol": self.symbol, "rate": self.rate, "months": self.months,
+                "start": self.start.isoformat(), "end": self.end.isoformat() if self.end else None,
+                "done_until": self.done_until.isoformat() if self.done_until else None}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SavingsPlan:
+        return cls(symbol=str(data["symbol"]), rate=float(data["rate"]), start=parse_date(data["start"]),
+                   months=int(data.get("months") or 1), end=parse_date(data.get("end")),
+                   id=str(data.get("id") or uuid.uuid4().hex[:10]), done_until=parse_date(data.get("done_until")))
 
 
 def num_text(x: float) -> str:
@@ -164,6 +240,7 @@ class Portfolio:
     securities: dict[str, SecurityInfo] = field(default_factory=dict)
     transactions: list[Transaction] = field(default_factory=list)
     splits: dict[str, list[tuple[date, float]]] = field(default_factory=dict, repr=False, compare=False)
+    plans: list[SavingsPlan] = field(default_factory=list)
 
     def sale_gain(self, symbol: str, shares: float, price: float) -> float | None:
         """Gewinn eines gedachten Verkaufs heute nach FIFO; ``None`` ohne Kaufkurse."""
@@ -174,7 +251,8 @@ class Portfolio:
         factor = split_factor(self.splits.get(t.symbol, []), t.date)
         if factor == 1.0:
             return t
-        return Transaction(t.symbol, t.kind, t.shares * factor, t.price / factor if t.price else t.price, t.date)
+        return Transaction(t.symbol, t.kind, t.shares * factor, t.price / factor if t.price else t.price, t.date,
+                           t.plan)
 
     def effective_transactions(self) -> list[Transaction]:
         """Alle Transaktionen splitbereinigt (für Bestände, Gewinne und Wertentwicklung)."""
@@ -255,6 +333,11 @@ class Portfolio:
             self.transactions[index] = before
             raise
 
+    def _drop_unused(self, symbol: str) -> None:
+        """Stammdaten entfernen, wenn weder Transaktionen noch ein Sparplan das Wertpapier brauchen."""
+        if not self.transactions_of(symbol) and not self.plans_of(symbol):
+            self.securities.pop(symbol, None)
+
     def remove_transaction(self, index: int) -> None:
         tx = self.transactions.pop(index)
         try:
@@ -262,8 +345,7 @@ class Portfolio:
         except ValueError:
             self.transactions.insert(index, tx)
             raise
-        if not self.transactions_of(tx.symbol):
-            self.securities.pop(tx.symbol, None)
+        self._drop_unused(tx.symbol)
 
     def remove_transactions(self, indices) -> list[str]:
         """Löscht mehrere Transaktionen auf einmal – alle oder keine.
@@ -285,14 +367,116 @@ class Portfolio:
             self.transactions = before
             return errors
         for symbol in symbols:
-            if not self.transactions_of(symbol):
-                self.securities.pop(symbol, None)
+            self._drop_unused(symbol)
         return []
 
     def remove(self, symbol: str) -> None:
-        """Entfernt ein Wertpapier mit allen Transaktionen."""
+        """Entfernt ein Wertpapier mit allen Transaktionen und Sparplänen."""
         self.transactions = [t for t in self.transactions if t.symbol != symbol]
+        self.plans = [p for p in self.plans if p.symbol != symbol]
         self.securities.pop(symbol, None)
+
+    # -- Sparpläne ------------------------------------------------------------
+
+    def plans_of(self, symbol: str) -> list[SavingsPlan]:
+        return [p for p in self.plans if p.symbol == symbol]
+
+    def plan(self, plan_id: str) -> SavingsPlan:
+        for p in self.plans:
+            if p.id == plan_id:
+                return p
+        raise KeyError(f"Sparplan {plan_id} gibt es nicht.")
+
+    def executions(self, plan_id: str) -> list[Transaction]:
+        return [t for t in self.transactions if t.plan == plan_id]
+
+    def add_plan(self, info: SecurityInfo, rate: float, start: date, months: int = 1,
+                 end: date | None = None) -> SavingsPlan:
+        """Legt einen Sparplan an; die Ausführungen erzeugt ``run_plan`` aus den Schlusskursen."""
+        if rate <= 0:
+            raise ValueError("Die Sparrate muss größer als null sein.")
+        if months not in INTERVALS:
+            raise ValueError(f"Unbekannter Rhythmus: alle {months} Monate")
+        if end is not None and end < start:
+            raise ValueError("Das Ende liegt vor der ersten Ausführung. Wähle ein späteres Datum.")
+        plan = SavingsPlan(info.symbol, float(rate), start, months, end)
+        self.securities[info.symbol] = info
+        self.plans.append(plan)
+        return plan
+
+    def run_plan(self, plan: SavingsPlan, closes: pd.Series, splits: list[tuple[date, float]] | None = None,
+                 today: date | None = None) -> int:
+        """Erzeugt die fälligen Ausführungen eines Sparplans; Rückgabe: Anzahl neuer Käufe.
+
+        ``closes``: tatsächliche Schlusskurse in Euro je Handelstag (splitbereinigt, wie die Kursreihen
+        der App). Gekauft wird für die Sparrate zum Schlusskurs am Termin bzw. am nächsten Handelstag,
+        in der damaligen Stückelung (wie in der Abrechnung). Hat ein Termin noch keinen Kurs (heute vor
+        Börsenschluss, Daten fehlen noch), endet der Lauf dort und wird beim nächsten Laden fortgesetzt.
+        Liegt der nächste Kurs mehr als ``GRACE_DAYS`` hinter dem Termin (z. B. vor der Notierung),
+        entfällt diese Ausführung.
+        """
+        today = today or date.today()
+        closes = closes.dropna()
+        closes = closes[closes > 0]
+        added = 0
+        for due in plan.due_dates(today):
+            if plan.done_until and due <= plan.done_until:
+                continue
+            after = closes.loc[pd.Timestamp(due):]
+            if after.empty:
+                break
+            day = after.index[0].date()
+            if day > today:
+                break
+            if (day - due).days > GRACE_DAYS:
+                plan.done_until = due
+                continue
+            price = float(after.iloc[0]) * split_factor(splits or [], day)
+            self.transactions.append(Transaction(plan.symbol, BUY, round(plan.rate / price, 6), round(price, 4),
+                                                 day, plan.id))
+            plan.done_until = due
+            added += 1
+        return added
+
+    def end_plan(self, plan_id: str, end: date) -> int:
+        """Beendet einen Sparplan zum Datum ``end``; spätere Ausführungen werden gelöscht.
+
+        Rückgabe: Anzahl gelöschter Ausführungen. Würde dadurch ein Verkauf den Bestand
+        übersteigen, bleibt alles unverändert (``ValueError``).
+        """
+        plan = self.plan(plan_id)
+        if end < plan.start:
+            raise ValueError("Das Ende liegt vor der ersten Ausführung. Wähle ein späteres Datum.")
+        before = self.transactions
+        self.transactions = [t for t in before if not (t.plan == plan_id and t.date and t.date > end)]
+        try:
+            self._check(plan.symbol)
+        except ValueError:
+            self.transactions = before
+            raise
+        plan.end = end
+        if plan.done_until and plan.done_until > end:
+            plan.done_until = max((d for d in plan.due_dates(end)), default=None)
+        return len(before) - len(self.transactions)
+
+    def delete_plan(self, plan_id: str, keep_executions: bool = True) -> int:
+        """Löscht einen Sparplan. Seine Käufe bleiben als einzelne Transaktionen stehen oder werden
+        mitgelöscht. Rückgabe: Anzahl gelöschter Käufe; ``ValueError`` bei Überverkauf."""
+        plan = self.plan(plan_id)
+        before = self.transactions
+        if keep_executions:
+            for t in self.executions(plan_id):
+                t.plan = None
+        else:
+            self.transactions = [t for t in before if t.plan != plan_id]
+            try:
+                self._check(plan.symbol)
+            except ValueError:
+                self.transactions = before
+                raise
+        self.plans = [p for p in self.plans if p.id != plan_id]
+        self._drop_unused(plan.symbol)
+        return len(before) - len(self.transactions)
 
     def to_dict(self) -> dict:
         return {
@@ -302,6 +486,7 @@ class Portfolio:
             "updated": datetime.now().isoformat(timespec="seconds"),
             "securities": {s: info.to_dict() for s, info in self.securities.items()},
             "transactions": [t.to_dict() for t in self.transactions],
+            "plans": [p.to_dict() for p in self.plans],
         }
 
     @classmethod
@@ -310,6 +495,7 @@ class Portfolio:
         if "transactions" in data:
             pf.securities = {s: SecurityInfo.from_dict(info) for s, info in data.get("securities", {}).items()}
             pf.transactions = [Transaction.from_dict(t) for t in data["transactions"]]
+            pf.plans = [SavingsPlan.from_dict(p) for p in data.get("plans", [])]
         else:  # altes Format: Positionen mit Stückzahl und Kaufkurs, ohne Datum
             for item in data.get("positions", []):
                 info = SecurityInfo.from_dict(item)

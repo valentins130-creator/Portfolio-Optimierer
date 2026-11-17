@@ -1,1 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="translate(0,0) scale(1.0667)"><rect width="30" height="30" rx="7.5" fill="#0071e3"/><path d="M7.5 23 C 8.6 14.6 13.6 9.4 23 8" stroke="#ffffff" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="12.4" cy="12.6" r="3.3" fill="#ffffff" stroke="#0071e3" stroke-width="1.6"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Bildmarke: Effizienzkurve über einer Wolke möglicher Depots, das optimale Depot als Funke -->
+  <defs>
+    <linearGradient id="po-tile" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f8bff"/>
+      <stop offset=".55" stop-color="#3b5bff"/>
+      <stop offset="1" stop-color="#6a3dff"/>
+    </linearGradient>
+    <radialGradient id="po-glow" cx="7" cy="5" r="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#po-tile)"/>
+  <rect width="32" height="32" rx="8" fill="url(#po-glow)"/>
+  <g fill="#fff" fill-opacity=".5">
+    <circle cx="12.6" cy="21.6" r="1.7"/>
+    <circle cx="18" cy="18.8" r="1.7"/>
+    <circle cx="21.6" cy="23.2" r="1.7"/>
+  </g>
+  <path d="M6 25.5C8 15 13 9.5 26.5 7" fill="none" stroke="#fff" stroke-width="2.9" stroke-linecap="round"/>
+  <path d="M15.3 4.9Q16.2 9.9 21.2 10.8Q16.2 11.7 15.3 16.7Q14.4 11.7 9.4 10.8Q14.4 9.9 15.3 4.9Z" fill="#ffd60a"
+        stroke="#3653ff" stroke-width="1.6" stroke-linejoin="round" paint-order="stroke"/>
+</svg>

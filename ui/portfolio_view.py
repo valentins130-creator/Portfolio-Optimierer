@@ -12,8 +12,18 @@ from portfolio_optimizer import charts, data, performance
 from portfolio_optimizer.estimators import MEAN_ESTIMATORS
 from portfolio_optimizer.formatting import num, pct, ratio, styled
 from portfolio_optimizer.market import get_provider
-from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, exposures, is_concentration_group, parse_date
-from ui.common import choose, flash, page_head, show_chart, show_flash
+from portfolio_optimizer.portfolio import (
+    BUY,
+    INTERVALS,
+    SELL,
+    Portfolio,
+    SavingsPlan,
+    add_months,
+    exposures,
+    is_concentration_group,
+    parse_date,
+)
+from ui.common import choose, flash, page_head, show_chart, show_flash, sub_head
 from ui.state import (
     PortfolioContext,
     RunState,
@@ -22,11 +32,15 @@ from ui.state import (
     current_limits,
     current_portfolio,
     prices_eur,
+    run_plans,
     save,
     search,
     security_info,
     set_portfolio,
 )
+
+PLAN = "Sparplan"
+PLAN_OPEN, PLAN_UNTIL = "Bis heute", "Bis Datum"
 
 DIMENSIONS = {"Sektoren": "sector", "Währungen": "currency"}
 
@@ -58,7 +72,8 @@ def render(run: RunState) -> None:
         st.button("Transaktion erfassen", type="primary", icon=":material/add:", key="add_open",
                   on_click=_set_adding, args=(True,))
     if not ctx.portfolio.securities:
-        st.info("Das Depot ist noch leer. Erfasse oben deine Käufe mit Datum, Stückzahl und Kurs."
+        st.info("Das Depot ist noch leer. Erfasse oben deine Käufe mit Datum, Stückzahl und Kurs oder lege mit "
+                "Typ **Sparplan** einen regelmäßigen Kauf an."
                 + (" Oder lade unter **Verwalten → Neu** das Beispieldepot." if ctx.provider == "demo" else ""))
         return
     choice = choose("sec_depot", SECTIONS, "positions")
@@ -190,8 +205,11 @@ def _add_transaction(ctx: PortfolioContext) -> None:
     if picked is None:
         return
     symbol, info = picked
-    c1, c2, c3, c4, c5 = st.columns([1.3, 1.3, 1, 1.3, 1], vertical_alignment="bottom")
-    c1.segmented_control("Typ", [BUY, SELL], default=BUY, key="tx_kind", required=True)
+    c1, c2, c3, c4, c5 = st.columns(TX_COLUMNS, vertical_alignment="bottom")
+    kind = c1.segmented_control("Typ", [BUY, SELL, PLAN], default=BUY, key="tx_kind", required=True)
+    if kind == PLAN:
+        _plan_inputs(ctx, symbol, (c2, c3, c4, c5))
+        return
     when = c2.date_input("Datum", value=date.today(), min_value=date(1970, 1, 1), max_value=date.today(),
                          format="DD.MM.YYYY", key="tx_date")  # ohne min_value nur die letzten zehn Jahre
     close = close_on(ctx.provider, info, when)
@@ -215,6 +233,147 @@ def _add_transaction(ctx: PortfolioContext) -> None:
     left.caption(" · ".join(parts))
     if close and abs(float(st.session_state.get("tx_price") or 0) - round(close[0], 2)) > 0.004:
         right.button("Schlusskurs einsetzen", on_click=_use_price, args=(close[0],), type="tertiary")
+
+
+# Typ, dann je nach Typ Datum/Stück/Kurs oder Sparrate/Rhythmus/Start; der Typ-Schalter braucht
+# rund 270 px, damit „Kauf · Verkauf · Sparplan“ in einer Zeile bleibt
+TX_COLUMNS = [2.2, 1.3, 1.1, 1.3, 1]
+
+
+def _plan_inputs(ctx: PortfolioContext, symbol: str, cols) -> None:
+    """Sparplan: Sparrate, Rhythmus, erste Ausführung und Ende (bis heute oder bis zu einem Datum)."""
+    c2, c3, c4, _ = cols
+    today = date.today()
+    rate = c2.number_input("Sparrate (EUR)", min_value=1.0, value=100.0, step=25.0, format="%.2f", key="plan_rate")
+    months = c3.selectbox("Rhythmus", list(INTERVALS), format_func=INTERVALS.get, key="plan_months")
+    start = c4.date_input("Erste Ausführung", value=today.replace(day=1), min_value=date(1970, 1, 1),
+                          max_value=add_months(today, 12), format="DD.MM.YYYY", key="plan_start")
+    e1, e2, _, e5 = st.columns(TX_COLUMNS[:3] + [TX_COLUMNS[3] + TX_COLUMNS[4]], vertical_alignment="bottom")
+    mode = e1.segmented_control("Ende", [PLAN_OPEN, PLAN_UNTIL], default=PLAN_OPEN, key="plan_end_mode",
+                                required=True)
+    end = None
+    if mode == PLAN_UNTIL:
+        end = e2.date_input("Letzte Ausführung bis", value=max(today, start), min_value=start, format="DD.MM.YYYY",
+                            key="plan_end")
+    e5.button("Sparplan anlegen", type="primary", on_click=_record_plan, args=(ctx.provider, symbol),
+              width="stretch")
+    due = SavingsPlan(symbol, rate, start, months, end).due_dates(today)
+    if due:
+        text = (f"Bis heute fällig: {len(due)} {'Ausführung' if len(due) == 1 else 'Ausführungen'}, "
+                f"zusammen {num(len(due) * rate, 2)} €.")
+    else:
+        text = f"Erste Ausführung am {start:%d.%m.%Y}."
+    text += " Gekauft wird für die Sparrate zum Schlusskurs am Termin oder am nächsten Handelstag."
+    if mode == PLAN_OPEN:
+        text += " Der Plan läuft weiter: neue Termine kommen automatisch dazu, bis du ihn beendest."
+    st.caption(text)
+
+
+def _record_plan(provider: str, symbol: str) -> None:
+    portfolio = current_portfolio(provider)
+    try:
+        info = portfolio.securities.get(symbol) or security_info(provider, symbol)
+    except Exception as exc:  # Netzwerk- oder Datenfehler
+        flash(f"Stammdaten für {symbol} nicht abrufbar: {exc}", "error")
+        return
+    state = st.session_state
+    end = state.get("plan_end") if state.get("plan_end_mode") == PLAN_UNTIL else None
+    try:
+        plan = portfolio.add_plan(info, float(state.get("plan_rate") or 0), state.get("plan_start") or date.today(),
+                                  int(state.get("plan_months") or 1), end)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return
+    run_plans(provider, portfolio)
+    save(provider)
+    bump_editor()
+    state["tx_query"] = ""
+    state["tx_kind"] = BUY  # kein zweiter Plan aus Versehen durch erneutes Klicken
+    state.pop("tx_undo", None)
+    runs = portfolio.executions(plan.id)
+    message = f"Sparplan {plan.label} für {info.name} angelegt"
+    if runs:
+        invested = sum(t.amount or 0 for t in runs)
+        message += (f": {len(runs)} {'Ausführung' if len(runs) == 1 else 'Ausführungen'} bis heute erfasst, "
+                    f"zusammen {num(invested, 2)} €.")
+    elif plan.start > date.today():
+        message += f", erste Ausführung am {plan.start:%d.%m.%Y}."
+    else:
+        message += ". Für die fälligen Termine liegen noch keine Schlusskurse vor; sie folgen beim nächsten Laden."
+    flash(message)
+
+
+def _end_plan(provider: str, plan_id: str) -> None:
+    portfolio = current_portfolio(provider)
+    end = st.session_state.get(f"plan_stop_{plan_id}") or date.today()
+    snapshot = portfolio.to_dict()
+    try:
+        removed = portfolio.end_plan(plan_id, end)
+    except (ValueError, KeyError) as exc:
+        flash(str(exc), "error")
+        return
+    save(provider)
+    bump_editor()
+    if removed:
+        st.session_state["tx_undo"] = {"provider": provider, "name": portfolio.name, "data": snapshot,
+                                       "count": removed}
+    flash(f"Sparplan beendet zum {end:%d.%m.%Y}."
+          + (f" {removed} spätere {'Ausführung' if removed == 1 else 'Ausführungen'} gelöscht." if removed else ""))
+
+
+def _delete_plan(provider: str, plan_id: str) -> None:
+    portfolio = current_portfolio(provider)
+    keep = st.session_state.get(f"plan_keep_{plan_id}") != "mitlöschen"
+    snapshot = portfolio.to_dict()
+    try:
+        removed = portfolio.delete_plan(plan_id, keep_executions=keep)
+    except (ValueError, KeyError) as exc:
+        flash(f"Nicht gelöscht: {exc}", "error")
+        return
+    save(provider)
+    bump_editor()
+    st.session_state["tx_undo"] = {"provider": provider, "name": portfolio.name, "data": snapshot,
+                                   "count": max(removed, 1)}
+    flash("Sparplan gelöscht." + (f" {removed} Käufe daraus ebenfalls gelöscht." if removed
+                                  else " Seine Käufe stehen weiter als einzelne Transaktionen im Depot."))
+
+
+def _plans(ctx: PortfolioContext) -> None:
+    """Sparpläne des Depots mit Stand, Beenden und Löschen."""
+    portfolio, today = ctx.portfolio, date.today()
+    if not portfolio.plans:
+        return
+    sub_head("Sparpläne")
+    for plan in sorted(portfolio.plans, key=lambda p: p.start):
+        info = portfolio.securities.get(plan.symbol)
+        name = info.name if info else plan.symbol
+        runs = portfolio.executions(plan.id)
+        invested = sum(t.amount or 0 for t in runs)
+        if not plan.running(today):
+            status = f"beendet am {plan.end:%d.%m.%Y}"
+        elif plan.end:
+            status = f"läuft bis {plan.end:%d.%m.%Y}"
+        else:
+            status = "läuft"
+        with st.container(key=f"card_plan_{plan.id}"):
+            text, stop, delete = st.columns([5, 1.3, 1.3], vertical_alignment="center")
+            text.markdown(f"**{name}**  \n{plan.label} · seit {plan.start:%d.%m.%Y} · {status}  \n"
+                          f":gray[{len(runs)} {'Ausführung' if len(runs) == 1 else 'Ausführungen'} · "
+                          f"{num(invested, 2)} € investiert]")
+            if plan.running(today):
+                with stop.popover("Beenden", icon=":material/stop_circle:", width="stretch"):
+                    st.date_input("Letzte Ausführung bis", value=today, min_value=plan.start, format="DD.MM.YYYY",
+                                  key=f"plan_stop_{plan.id}")
+                    st.caption("Ausführungen nach diesem Datum werden gelöscht, neue kommen nicht mehr dazu.")
+                    st.button("Sparplan beenden", type="primary", key=f"plan_stop_go_{plan.id}",
+                              on_click=_end_plan, args=(ctx.provider, plan.id), width="stretch")
+            with delete.popover("Löschen", icon=":material/delete:", width="stretch"):
+                st.radio("Käufe aus diesem Sparplan", ["behalten", "mitlöschen"], key=f"plan_keep_{plan.id}",
+                         captions=["Sie bleiben als einzelne Transaktionen im Depot.",
+                                   f"{len(runs)} {'Kauf wird' if len(runs) == 1 else 'Käufe werden'} gelöscht."])
+                st.button(f"Sparplan {name} löschen", type="primary", key=f"plan_delete_go_{plan.id}",
+                          on_click=_delete_plan, args=(ctx.provider, plan.id), width="stretch")
+    sub_head("Alle Transaktionen")
 
 
 # ---------------------------------------------------------------------------
@@ -346,27 +505,30 @@ def _undo_delete(provider: str) -> None:
 
 def _transactions(ctx: PortfolioContext) -> None:
     portfolio = ctx.portfolio
+    _plans(ctx)
     order = sorted(range(len(portfolio.transactions)),
                    key=lambda i: (portfolio.transactions[i].date or date.min), reverse=True)
     marked = st.session_state.get("tx_marked", set())
+    plan_labels = {p.id: p.label for p in portfolio.plans}
     rows = []
     for i in order:
         t = portfolio.transactions[i]
         info = portfolio.securities.get(t.symbol)
         rows.append({MARK: i in marked, "Datum": t.date, "Typ": t.kind, "Wertpapier": info.name if info else t.symbol,
-                     "Stück": t.shares, "Kurs": t.price, "Betrag": t.amount})
+                     "Stück": t.shares, "Kurs": t.price, "Betrag": t.amount, "Sparplan": plan_labels.get(t.plan)})
     key = f"tx_editor_{st.session_state.get('tx_editor_version', 0)}"
     st.data_editor(
         pd.DataFrame(rows), key=key, hide_index=True, on_change=_apply_tx_edits, args=(ctx.provider, key, order),
-        disabled=["Wertpapier", "Betrag"],
+        disabled=["Wertpapier", "Betrag", "Sparplan"],
         column_config={
             MARK: st.column_config.CheckboxColumn("", help="Zum Löschen markieren", width=40),
             "Datum": st.column_config.DateColumn(format="DD.MM.YYYY", width=105),
             "Typ": st.column_config.SelectboxColumn(options=[BUY, SELL], required=True, width=90),
-            "Wertpapier": st.column_config.TextColumn(width=260),
+            "Wertpapier": st.column_config.TextColumn(width=230),
             "Stück": st.column_config.NumberColumn(min_value=0.0, format="localized", width=80),
             "Kurs": st.column_config.NumberColumn("Kurs €", min_value=0.0, format="euro", width=95),
             "Betrag": st.column_config.NumberColumn("Betrag €", format="euro", width=110),
+            "Sparplan": st.column_config.TextColumn(width=150, help="Kauf aus diesem Sparplan"),
         },
     )
     if marked:
@@ -379,7 +541,8 @@ def _transactions(ctx: PortfolioContext) -> None:
         st.button(f"Löschen rückgängig machen ({undo['count']})", type="tertiary", icon=":material/undo:",
                   on_click=_undo_delete, args=(ctx.provider,))
     undated = sum(1 for t in portfolio.transactions if t.date is None)
-    st.caption("Werte direkt in der Tabelle ändern; zum Löschen Zeilen markieren."
+    st.caption("Werte direkt in der Tabelle ändern; zum Löschen Zeilen markieren. Sparpläne legst du unter "
+               "„Transaktion erfassen“ mit Typ „Sparplan“ an."
                + (f" {undated} ohne Datum – bitte ergänzen, sonst fehlen sie in der Wertentwicklung." if undated
                   else ""))
 
