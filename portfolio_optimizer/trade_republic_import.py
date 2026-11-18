@@ -60,7 +60,11 @@ class Statement:
 
 
 def parse_statement_pdf(content: bytes) -> Statement:
-    import pdfplumber
+    try:
+        import pdfplumber
+    except ImportError as exc:  # z. B. lokal ohne "pip install -r requirements.txt"
+        raise ValueError("Für den PDF-Import fehlt das Paket pdfplumber. Bitte "
+                         "„python -m pip install -r requirements.txt“ ausführen.") from exc
 
     if not content.startswith(b"%PDF"):
         raise ValueError("Die Datei ist kein PDF.")
@@ -155,6 +159,7 @@ def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             shares = number(row.get("shares"))
         except (ValueError, TypeError):
             shares = float("nan")
+        price = _price(row, shares)
         action = "Ignoriert (keine Bestandsänderung)"
         delta = 0.0
         if kind in POSITION_EVENTS:
@@ -170,9 +175,9 @@ def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         events.append({"Zeile": index + 2, "Datum": row.get("date"), "Typ": kind,
                            "Name": row.get("name") if pd.notna(row.get("name")) else "",
                            "ISIN/Symbol": symbol, "Anlageklasse": row.get("asset_class") if pd.notna(row.get("asset_class")) else "",
-                           "Anteile": shares, "Bestandsänderung": delta, "Status": action})
+                           "Anteile": shares, "Bestandsänderung": delta, "Kurs": price, "Status": action})
     audit = pd.DataFrame(events, columns=["Zeile", "Datum", "Typ", "Name", "ISIN/Symbol", "Anlageklasse",
-                                          "Anteile", "Bestandsänderung", "Status"])
+                                          "Anteile", "Bestandsänderung", "Kurs", "Status"])
     positive = audit[(audit["Status"] == "Bestandsänderung") & audit["ISIN/Symbol"].ne("")]
     holdings = []
     for symbol, group in positive.groupby("ISIN/Symbol", sort=False):
@@ -189,6 +194,19 @@ def parse_broker_csv(content: bytes) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     frame.loc[frame["ISIN/Symbol"].isin(affected), "Prüfhinweis"] = "Ungeklärte Buchungen: Gesamtbestand abgleichen und ggf. korrigieren"
     frame["Bestätigt"] = False
     return frame, audit, types
+
+
+def _price(row: pd.Series, shares: float) -> float | None:
+    """Kurs je Stück in Euro, falls der Export ihn (Spalte price) oder den Betrag (amount) enthält."""
+    try:
+        if "price" in row and pd.notna(row["price"]) and number(row["price"]) > 0:
+            return number(row["price"])
+        if "amount" in row and pd.notna(row["amount"]) and math.isfinite(shares) and shares:
+            value = abs(number(row["amount"])) / abs(shares)
+            return value if value > 0 else None
+    except (ValueError, TypeError):
+        pass
+    return None
 
 
 def confirmed_positions(frame: pd.DataFrame) -> pd.DataFrame:

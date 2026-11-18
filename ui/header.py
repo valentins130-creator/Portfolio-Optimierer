@@ -6,10 +6,12 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from portfolio_optimizer.estimators import COV_ESTIMATORS, MEAN_ESTIMATORS
-from portfolio_optimizer.portfolio import BUY, TRASH_DAYS, Portfolio, read_transactions_csv
+from portfolio_optimizer.portfolio import BUY, SELL, TRASH_DAYS, Portfolio, parse_date, read_transactions_csv
+from portfolio_optimizer.trade_republic_import import ISIN, is_broker_csv, parse_broker_csv, parse_statement_pdf
 from ui import auth
 from ui.common import flash
 from ui.state import (
@@ -23,6 +25,7 @@ from ui.state import (
     remember_provider,
     reset_portfolio_inputs,
     saved_provider,
+    search,
     security_info,
     set_portfolio,
     store,
@@ -150,8 +153,61 @@ def load_example(provider: str) -> None:
     flash("Beispieldepot geladen.")
 
 
+_CRYPTO = {"BTC", "ETH", "SOL", "XRP", "ADA", "DOT"}
+Row = tuple[str, str, float, "float | None", "date | None"]  # Kennung, Typ, Stück, Kurs, Datum
+
+
+def _statement_rows(content: bytes) -> tuple[list[Row], list[str]]:
+    """Bestände einer Vermögensübersicht (PDF) als Käufe zum Stichtag, Einstand = Wert laut Beleg."""
+    statement = parse_statement_pdf(content)
+    when = parse_date(statement.as_of) if statement.as_of else date.today()
+    rows, notes = [], list(statement.warnings)
+    for _, pos in statement.positions.iterrows():
+        ident, shares, value = str(pos["ISIN/Symbol"]).strip(), float(pos["Anteile"]), float(pos["Wert EUR"])
+        if pos["Bereich"] == "CASH" or not ident or shares <= 0:
+            continue
+        if pos["Bereich"] == "CRYPTO WALLET" and ident in _CRYPTO:
+            ident = f"{ident}-EUR"
+        rows.append((ident, BUY, shares, value / shares if value > 0 else None, when))
+    notes.append(f"PDF-Bestand zum {when:%d.%m.%Y}: Als Einstand gilt der Wert laut Beleg; Gewinne vor dem "
+                 "Stichtag sind darin nicht enthalten. Bargeld wird nicht übernommen.")
+    return rows, notes
+
+
+def _broker_rows(content: bytes) -> tuple[list[Row], list[str]]:
+    """Käufe und Verkäufe aus einem Broker-Export; Dividenden, Zinsen und Geldbewegungen bleiben außen vor."""
+    _, audit, _ = parse_broker_csv(content)
+    rows = []
+    for _, event in audit[audit["Status"] == "Bestandsänderung"].iterrows():
+        ident = str(event["ISIN/Symbol"]).strip()
+        if str(event["Anlageklasse"]).upper() == "CRYPTO" and ident.upper() in _CRYPTO:
+            ident = f"{ident.upper()}-EUR"
+        when = pd.to_datetime(event["Datum"], errors="coerce", utc=True)
+        price = event["Kurs"] if pd.notna(event["Kurs"]) else None
+        rows.append((ident, BUY if event["Bestandsänderung"] > 0 else SELL, abs(float(event["Anteile"])),
+                     price, when.date() if pd.notna(when) else None))
+    notes = []
+    review = int(audit["Status"].str.startswith(("Prüfen", "Manuell")).sum())
+    if review:
+        notes.append(f"{review} {'Buchung' if review == 1 else 'Buchungen'} (z. B. Kapitalmaßnahmen oder ungültige "
+                     "Zeilen) nicht übernommen, bitte im Depot prüfen.")
+    return rows, notes
+
+
+def _resolve(provider: str, ident: str):
+    """Stammdaten zu Symbol oder ISIN. Eine ISIN wird zuerst über die Suche einem Börsensymbol zugeordnet,
+    denn Kurse gibt es nur zum Symbol."""
+    if ISIN.fullmatch(ident):
+        for hit in search(provider, ident):
+            try:
+                return security_info(provider, hit.symbol)
+            except Exception:  # nächsten Treffer versuchen
+                continue
+    return security_info(provider, ident)
+
+
 def import_upload(provider: str, key: str = "pf_upload") -> None:
-    """Depot aus einer hochgeladenen JSON- oder CSV-Datei übernehmen (Callback)."""
+    """Depot aus einer hochgeladenen JSON-, CSV- oder PDF-Datei übernehmen (Callback)."""
     upload = st.session_state.get(key)
     if upload is None:
         flash("Bitte zuerst eine Datei auswählen.", "error")
@@ -159,48 +215,56 @@ def import_upload(provider: str, key: str = "pf_upload") -> None:
     content = upload.getvalue()
     failed: list[str] = []
     unpriced: list[str] = []  # Kurs leer und kein Schlusskurs gefunden
+    notes: list[str] = []
     filled = 0
     try:
-        if upload.name.lower().endswith(".json"):
+        suffix = Path(upload.name).suffix.lower()
+        if suffix == ".json":
             portfolio = Portfolio.from_dict(json.loads(content.decode("utf-8-sig")))
+            rows = []
         else:
-            from portfolio_optimizer.trade_republic_import import is_broker_csv
-            if is_broker_csv(content):
-                flash("Broker-CSV erkannt: Bitte den Tab „Trade Republic“ benutzen. "
-                      "Andernfalls könnten Dividenden und Kapitalmaßnahmen irrtümlich als Käufe gelten.", "error")
-                return
             portfolio = Portfolio(Path(upload.name).stem)
-            # zeitlich geordnet, damit jeder Verkauf auf die Käufe davor trifft
-            rows = sorted(read_transactions_csv(content), key=lambda r: (r[4] or date.min, r[1] != BUY))
-            infos = {}
-            for symbol in dict.fromkeys(r[0] for r in rows):
-                try:
-                    infos[symbol] = security_info(provider, symbol)
-                except Exception:  # unbekanntes Symbol oder Netzwerkfehler
-                    failed.append(symbol)
-            dated = [r[4] for r in rows if r[4]]
-            hist = None
-            if infos and dated:  # Splits vorab, damit Verkäufe nach einem Split gedeckt sind
-                try:
-                    hist = history_eur(provider, tuple(infos), tuple(i.currency for i in infos.values()),
-                                       min(dated) - timedelta(days=10), date.today())
-                    portfolio.splits = hist.splits
-                except Exception:  # ohne Splits und Kursübernahme weiter
-                    pass
-            for symbol, kind, shares, price, when in rows:
-                if symbol not in infos:
-                    continue
-                if price is None and when and hist is not None:  # leerer Kurs: Schlusskurs des Tages
-                    close = close_from(hist, symbol, when)
-                    if close is not None:
-                        price = close[0]
-                        filled += 1
-                    else:
-                        unpriced.append(symbol)
-                try:
-                    portfolio.add_transaction(infos[symbol], kind, shares, price, when)
-                except ValueError:  # ungedeckter Verkauf
-                    failed.append(symbol)
+            if suffix == ".pdf" or content.startswith(b"%PDF"):
+                rows, notes = _statement_rows(content)
+            elif is_broker_csv(content):
+                rows, notes = _broker_rows(content)
+            else:
+                rows = read_transactions_csv(content)
+            if not rows:
+                raise ValueError("In der Datei wurden keine Wertpapiere gefunden.")
+        # zeitlich geordnet, damit jeder Verkauf auf die Käufe davor trifft
+        rows = sorted(rows, key=lambda r: (r[4] or date.min, r[1] != BUY))
+        infos = {}
+        for ident in dict.fromkeys(r[0] for r in rows):
+            try:
+                infos[ident] = _resolve(provider, ident)
+            except Exception:  # unbekanntes Symbol oder Netzwerkfehler
+                failed.append(ident)
+        dated = [r[4] for r in rows if r[4]]
+        hist = None
+        if infos and dated:  # Splits vorab, damit Verkäufe nach einem Split gedeckt sind
+            try:
+                hist = history_eur(provider, tuple(i.symbol for i in infos.values()),
+                                   tuple(i.currency for i in infos.values()),
+                                   min(dated) - timedelta(days=10), date.today())
+                portfolio.splits = hist.splits
+            except Exception:  # ohne Splits und Kursübernahme weiter
+                pass
+        for ident, kind, shares, price, when in rows:
+            if ident not in infos:
+                continue
+            info = infos[ident]
+            if price is None and when and hist is not None:  # leerer Kurs: Schlusskurs des Tages
+                close = close_from(hist, info.symbol, when)
+                if close is not None:
+                    price = close[0]
+                    filled += 1
+                else:
+                    unpriced.append(info.symbol)
+            try:
+                portfolio.add_transaction(info, kind, shares, price, when)
+            except ValueError:  # ungedeckter Verkauf
+                failed.append(ident)
     except (ValueError, KeyError, TypeError) as exc:
         flash(f"Import fehlgeschlagen: {exc}", "error")
         return
@@ -212,13 +276,14 @@ def import_upload(provider: str, key: str = "pf_upload") -> None:
         note += f" Bei {filled} {'Transaktion' if filled == 1 else 'Transaktionen'} ohne Kurs gilt der Schlusskurs des Tages."
     if unpriced:
         note += f" Ohne Kurs geblieben (kein Schlusskurs bei Yahoo): {', '.join(sorted(set(unpriced)))}."
+    note += "".join(f" {n}" for n in notes)
     flash(f"Portfolio „{portfolio.name}“ mit {len(portfolio.transactions)} Transaktionen importiert.{note}",
           "error" if failed else "success")
 
 
 def _manage(provider: str, portfolio: Portfolio) -> None:
     trash = store(provider).trash()
-    new, transfer, statement, delete, bin_ = st.tabs(["Neu", "Import/Export", "Trade Republic", "Löschen",
+    new, transfer, delete, bin_ = st.tabs(["Neu", "Import/Export", "Löschen",
                                            f"Papierkorb ({len(trash)})" if trash else "Papierkorb"])
     with new:
         st.text_input("Name des neuen Portfolios", key="pf_new_name", autocomplete="off")
@@ -233,13 +298,11 @@ def _manage(provider: str, portfolio: Portfolio) -> None:
         st.download_button("Transaktionen als CSV (Excel)", portfolio.to_csv(), file_name=f"{portfolio.name}.csv",
                            mime="text/csv", width="stretch")
         st.divider()
-        st.file_uploader("Importieren (JSON oder CSV)", type=["json", "csv"], key="pf_upload",
+        st.file_uploader("Importieren (JSON, CSV oder PDF)", type=["json", "csv", "pdf"], key="pf_upload",
                          help="CSV mit den Spalten Symbol und Stück, optional Datum, Typ (Kauf/Verkauf) und Kurs "
-                              "(EUR je Stück).")
+                              "(EUR je Stück). Außerdem Broker-Exporte (Transaktions-CSV) und die "
+                              "Vermögensübersicht von Trade Republic als PDF.")
         st.button("Importieren", on_click=import_upload, args=(provider,))
-    with statement:
-        from ui.tr_import_view import render as render_tr_import
-        render_tr_import()
     with delete:
         n = len(portfolio.transactions)
         st.markdown(f"**{portfolio.name}** · {n} {'Transaktion' if n == 1 else 'Transaktionen'}")

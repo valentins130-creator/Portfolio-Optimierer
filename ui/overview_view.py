@@ -216,9 +216,9 @@ def _onboarding(run: RunState) -> None:
             _go("depot", sec_add=True)
     with b, st.container(key="card_start_import"):
         st.html(f'<span class="po-tile">{xray.icon("swap")}</span><p class="po-start-title">Depot importieren</p>'
-                '<p class="po-start-text">CSV mit Symbol und Stückzahl, optional Datum und Kurs, oder ein '
-                "JSON-Export dieser App.</p>")
-        st.file_uploader("Datei", type=["json", "csv"], key="start_upload", label_visibility="collapsed")
+                '<p class="po-start-text">CSV mit Symbol und Stückzahl, optional Datum und Kurs, einen '
+                "Broker-Export, eine Vermögensübersicht als PDF oder einen JSON-Export dieser App.</p>")
+        st.file_uploader("Datei", type=["json", "csv", "pdf"], key="start_upload", label_visibility="collapsed")
         st.button("Importieren", width="stretch", key="start_import", on_click=header.import_upload,
                   args=(provider, "start_upload"))
     with c, st.container(key="card_start_demo"):

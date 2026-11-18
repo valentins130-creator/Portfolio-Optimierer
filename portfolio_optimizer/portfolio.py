@@ -531,7 +531,16 @@ def read_transactions_csv(source: bytes | str) -> list[tuple[str, str, float, fl
 
     Pflicht sind Symbol und Stück; ohne Typ-Spalte gilt jede Zeile als Kauf.
     """
+    from portfolio_optimizer.trade_republic_import import is_broker_csv
+
     text = source.decode("utf-8-sig") if isinstance(source, bytes) else source
+    try:
+        broker = is_broker_csv(text.encode("utf-8"))
+    except Exception:  # unlesbar: die Meldung kommt unten beim eigentlichen Lesen
+        broker = False
+    if broker:  # sonst gälten Dividenden oder Kapitalmaßnahmen als Käufe
+        raise ValueError("Das ist ein Broker-Export; er wird über den normalen Import mit Prüfung der Buchungsarten "
+                         "eingelesen.")
     try:
         df = pd.read_csv(io.StringIO(text), sep=None, engine="python", dtype=str)
     except Exception as exc:  # pandas wirft je nach Fehler unterschiedliche Typen

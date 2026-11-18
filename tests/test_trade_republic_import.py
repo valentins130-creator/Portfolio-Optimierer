@@ -1,5 +1,8 @@
 """Regression checks for Trade Republic imports (no real customer data)."""
+import sys
 import unittest
+from types import SimpleNamespace
+
 import pandas as pd
 from unittest.mock import patch
 from io import BytesIO
@@ -11,9 +14,9 @@ from portfolio_optimizer.trade_republic_import import (
 
 class TradeRepublicImportTests(unittest.TestCase):
     def test_date_and_datetime_columns_coexist(self):
-        data = ("datetime,date,type,symbol,shares,name,asset_class\\n"
-                "2026-01-01T10:00:00Z,2026-01-01,BUY,ABC,2,Example,STOCK\\n"
-                "2026-01-02T10:00:00Z,2026-01-02,DIVIDEND,ABC,10,Example,STOCK\\n")
+        data = ("datetime,date,type,symbol,shares,name,asset_class\n"
+                "2026-01-01T10:00:00Z,2026-01-01,BUY,ABC,2,Example,STOCK\n"
+                "2026-01-02T10:00:00Z,2026-01-02,DIVIDEND,ABC,10,Example,STOCK\n")
         holdings, audit, _ = parse_broker_csv(data.encode())
         self.assertEqual(len(audit), 2)
         self.assertEqual(len(holdings), 1)
@@ -91,7 +94,8 @@ class TradeRepublicImportTests(unittest.TestCase):
                 return self
             def __exit__(self, *args):
                 return False
-        with patch("pdfplumber.open", return_value=FakePdf()):
+        # ohne installiertes pdfplumber testbar: Modul durch eine Attrappe ersetzen
+        with patch.dict(sys.modules, {"pdfplumber": SimpleNamespace(open=lambda _: FakePdf())}):
             result = parse_statement_pdf(b"%PDF-test")
         self.assertEqual(len(result.positions), 2)
         self.assertAlmostEqual(result.positions["Wert EUR"].sum(), 300)
@@ -103,6 +107,17 @@ class TradeRepublicImportTests(unittest.TestCase):
         self.assertEqual(len(confirmed_positions(result.positions)), 1)
         result.positions.loc[0, "ISIN/Symbol"] = "EUR"
         self.assertTrue(confirmed_positions(result.positions).empty)
+
+    def test_missing_pdfplumber_gives_a_clear_message(self):
+        with patch.dict(sys.modules, {"pdfplumber": None}):
+            with self.assertRaisesRegex(ValueError, "pdfplumber"):
+                parse_statement_pdf(b"%PDF-test")
+
+    def test_broker_csv_keeps_price_or_amount(self):
+        csv = ("date,type,symbol,shares,amount,asset_class\n"
+               "2026-01-05,BUY,DE0007164600,4,-720,00,STOCK\n").replace("-720,00", '"-720,00"')
+        _, audit, _ = parse_broker_csv(csv.encode())
+        self.assertAlmostEqual(audit.loc[0, "Kurs"], 180.0)
 
 
 if __name__ == "__main__":

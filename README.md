@@ -266,28 +266,25 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 - DeMiguel, V., Garlappi, L. & Uppal, R. (2009): Optimal Versus Naive Diversification: How Inefficient Is the 1/N Portfolio Strategy? *Review of Financial Studies* 22(5).
 
  
-### Trade Republic: PDF-Vermögensübersicht und Transaktions-CSV
+### Import: CSV, Broker-Export und PDF-Vermögensübersicht
 
-Unter **Verwalten → Trade Republic** können Vermögensübersichten (PDF) und
-Transaktionshistorien (CSV) eingelesen werden. Das PDF liefert die Bestände und
-EUR-Marktwerte am Belegstichtag; die CSV ist ein separates Prüfprotokoll.
-Die beiden Quellen werden **nicht addiert**, damit Positionen nicht doppelt
-gezählt werden.
+Alles läuft über denselben Import (**Verwalten → Import/Export** oder die Karte
+„Depot importieren“ in der Übersicht). Die Art der Datei wird automatisch erkannt:
 
-Die PDF-Vorschau zeigt alle ausgelesenen Positionen einschließlich einer
-**ungeprüften** Aufteilung nach Anlageklassen. Erst nach ausdrücklicher
-Bestätigung und Validierung werden Positionen in die **bestätigte**
-Wertaufteilung und den bereinigten CSV-Export übernommen. Fehlende oder doppelte
-Kennungen und ungültige Stückzahlen/Werte sind ausgeschlossen.
+- **JSON**: Export dieser App.
+- **CSV** mit Symbol und Stück, optional Datum, Typ und Kurs; leere Kurse werden mit dem
+  Schlusskurs des Tages gefüllt.
+- **Broker-Export (CSV)**, etwa die Transaktionshistorie von Trade Republic: Nur plausible
+  `BUY` und `SELL` werden zu Käufen und Verkäufen (Kurs aus `price` oder `amount`/Stück,
+  sonst Schlusskurs des Tages). Dividenden, Zinsen, Ein- und Auszahlungen, Steuern und
+  Kartenzahlungen erzeugen keine Stücke; `FREE_RECEIPT`, `SPLIT`, `MERGER` und unbekannte
+  Buchungsarten werden nicht übernommen und in der Meldung gezählt. Splits kommen aus den
+  Kursdaten.
+- **PDF-Vermögensübersicht** (Trade Republic): Jede Position wird als Kauf zum Stichtag
+  übernommen, als Einstand gilt der Wert laut Beleg. Bargeld wird nicht übernommen. Weicht
+  die Summe der Positionen vom Gesamtwert ab, steht das in der Meldung.
 
-Bei der Transaktions-CSV beeinflussen nur plausibel erfasste `BUY` und `SELL`
-den vorläufigen Stückbestand. `DIVIDEND`, `DISTRIBUTION`, Zinsen,
-Einzahlungen, Steuerbuchungen und Kartentransaktionen erzeugen keine
-zusätzlichen Anteile. `FREE_RECEIPT`, `SPLIT`, `MERGER` und andere
-Kapitalmaßnahmen müssen manuell geprüft werden. Ohne PDF sind keine verlässlichen
-aktuellen **Wertanteile** aus historischen Transaktionen ableitbar.
-
-**Wichtig:** Das ist eine Import-/Kontrollansicht mit CSV-Export, keine
-automatische Übernahme der ISINs in die Yahoo-Finance-gestützte
-Optimierungsrechnung. Dafür wären zusätzlich geprüfte Tickermappings nötig.
-Die Anwendung schreibt die hochgeladenen Originaldokumente nicht in GitHub.
+ISINs werden über die Suche einem Börsensymbol zugeordnet; was sich nicht zuordnen lässt,
+wird übersprungen und genannt. Das Auslesen von PDFs braucht das Paket `pdfplumber` (steht in
+`requirements.txt`); fehlt es, meldet der Import das, statt abzustürzen. Hochgeladene Dateien
+werden nicht gespeichert, nur das daraus erzeugte Depot.
