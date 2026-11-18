@@ -445,10 +445,34 @@ def _quotes(provider: str, held: dict[str, SecurityInfo], prices: pd.DataFrame) 
     return pd.DataFrame.from_dict(rows, orient="index")[["price", "stand", "live", "time"]]
 
 
+def run_plans(provider: str, portfolio: Portfolio, today: date | None = None) -> int:
+    """Fällige Sparplan-Ausführungen zum Schlusskurs ergänzen; Rückgabe: Anzahl neuer Käufe.
+
+    Kurse werden nur abgerufen, wenn ein Termin seit dem letzten Lauf fällig geworden ist.
+    """
+    today = today or date.today()
+    added = 0
+    for plan in portfolio.plans:
+        info = portfolio.securities.get(plan.symbol)
+        if info is None or not any(d > (plan.done_until or date.min) for d in plan.due_dates(today)):
+            continue
+        try:
+            hist = history_eur(provider, (plan.symbol,), (info.currency,), plan.start - timedelta(days=7), today)
+        except Exception:  # Netzwerkfehler: beim nächsten Laden erneut
+            continue
+        if plan.symbol in hist.close.columns:
+            added += portfolio.run_plan(plan, hist.close[plan.symbol], hist.splits.get(plan.symbol, []), today)
+    return added
+
+
 def load_context(settings: Settings, portfolio: Portfolio | None = None) -> PortfolioContext:
     """Bestände, Kurse und Bewertung des gewählten Portfolios (oder eines übergebenen, etwa des Beispieldepots)."""
     provider = settings.provider
-    portfolio = current_portfolio(provider) if portfolio is None else portfolio
+    if portfolio is None:
+        portfolio = current_portfolio(provider)
+        if portfolio.plans and run_plans(provider, portfolio):  # neue Termine laufender Sparpläne
+            save(provider)
+            bump_editor()
     securities = portfolio.securities
     dated = [t.date for t in portfolio.transactions if t.date]
     history_start = min([settings.start, *dated])

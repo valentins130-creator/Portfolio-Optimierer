@@ -19,6 +19,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from portfolio_optimizer.formatting import num
+from portfolio_optimizer.portfolio import SavingsPlan
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
 PAGES = {
@@ -330,6 +331,38 @@ def test_record_buy_and_sell_with_dates(demo_app, tmp_path):
     _assert_clean(at)
     assert len(_saved(tmp_path)["transactions"]) == 2
     assert "+100 € realisiert" in _hero(at)  # 2 Stück × (150 − 100) €
+
+
+def test_savings_plan_buys_until_today_and_can_be_ended(demo_app, tmp_path):
+    at = demo_app
+    today = date.today()
+    start = (today - timedelta(days=200)).replace(day=1)
+    at.text_input(key="tx_query").set_value("Nordlicht").run()
+    at.segmented_control(key="tx_kind").set_value("Sparplan").run()
+    at.number_input(key="plan_rate").set_value(150.0)
+    at.date_input(key="plan_start").set_value(start).run()
+    assert any("Bis heute fällig" in c.value for c in at.caption)
+    _button(at, "Sparplan anlegen").click().run()
+    _assert_clean(at)
+    saved = _saved(tmp_path)
+    plan = saved["plans"][0]
+    assert (plan["symbol"], plan["rate"], plan["months"], plan["end"]) == ("NLS.DEMO", 150.0, 1, None)
+    runs = [t for t in saved["transactions"] if t.get("plan") == plan["id"]]
+    due = SavingsPlan("NLS.DEMO", 150.0, start).due_dates(today)
+    assert len(due) - 1 <= len(runs) <= len(due)  # der Termin heute wartet ggf. noch auf den Schlusskurs
+    assert all(t["kind"] == "Kauf" and abs(t["shares"] * t["price"] - 150) < 0.01 for t in runs)
+    assert any("Sparplan 150 € monatlich" in t.value for t in at.toast)
+
+    _open(at, "depot", "transactions")
+    _assert_clean(at)
+    assert any("150 € monatlich" in m.value and "läuft" in m.value for m in at.markdown)
+    stop = start + timedelta(days=40)  # zwei Termine: Monatsanfang und der Monatsanfang danach
+    at.date_input(key=f"plan_stop_{plan['id']}").set_value(stop)
+    _button(at, "Sparplan beenden").click().run()
+    _assert_clean(at)
+    saved = _saved(tmp_path)
+    assert saved["plans"][0]["end"] == stop.isoformat()
+    assert len([t for t in saved["transactions"] if t.get("plan")]) == 2
 
 
 def test_closing_price_is_filled_in_for_the_chosen_day(demo_app):

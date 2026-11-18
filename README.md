@@ -90,6 +90,18 @@ python scripts/smoke_test.py https://portfolio-optimierer-production.up.railway.
 
 **Transaktionen.** Ein Wertpapier per Name, Ticker oder ISIN suchen oder aus dem Depot wählen, dann Kauf oder Verkauf mit Datum, Stückzahl und Kurs je Stück in Euro erfassen. Sobald Wertpapier oder Datum feststehen, trägt die App den Schlusskurs dieses Tages ein; gibt es keinen, bleibt das Feld leer. Für genaue Gewinne den Ausführungskurs aus der Abrechnung eintragen. Ein Verkauf kann den Bestand an seinem Datum nicht übersteigen. In der Tabelle **Transaktionen** lassen sich Datum, Typ, Stück und Kurs direkt ändern. Gelöscht wird in zwei Schritten: Zeilen markieren, dann „markierte löschen“; danach lässt sich das Löschen rückgängig machen. Einstandskurse und realisierte Gewinne folgen dem FIFO-Prinzip: Die zuerst gekauften Stücke gelten als zuerst verkauft.
 
+**Sparpläne.** Unter **Transaktion erfassen** mit Typ **Sparplan** legst du regelmäßige Käufe an:
+- **Sparrate** in Euro.
+- **Rhythmus:** monatlich, alle 2 Monate, vierteljährlich, halbjährlich oder jährlich.
+- **Erste Ausführung:** danach immer am selben Tag im Monat. Gibt es den Tag nicht, etwa den 31., dann am Monatsletzten.
+- **Ende:** **Bis heute** heißt, der Plan läuft weiter, und neue Termine kommen beim Öffnen des Depots automatisch dazu. Mit **Bis Datum** endet der Plan an einem festen Tag.
+
+Jede Ausführung ist ein normaler Kauf für die Sparrate zum Schlusskurs am Termin bzw. am nächsten Handelstag, in der damaligen Stückelung, mit Bruchstücken. Hat ein Termin noch keinen Schlusskurs (heute vor Börsenschluss), folgt die Ausführung beim nächsten Laden. Die Käufe stehen in der Tabelle **Transaktionen** mit dem Vermerk des Sparplans und lassen sich dort einzeln korrigieren, etwa auf den Kurs aus der Abrechnung. Einzeln gelöschte Ausführungen legt die App nicht neu an. Über der Tabelle stehen die Sparpläne mit Stand und investierter Summe:
+- **Beenden** setzt ein Enddatum und löscht spätere Ausführungen.
+- **Löschen** entfernt den Plan. Seine Käufe bleiben dabei als einzelne Transaktionen stehen oder werden mitgelöscht.
+
+Beides lässt sich rückgängig machen.
+
 **Kapitalmaßnahmen.** Aktiensplits und Reverse-Splits berücksichtigt die App automatisch: Yahoo liefert sie mit den Kursen, und Transaktionen vor einem Split zählen mit entsprechend mehr (bzw. weniger) Stücken zum angepassten Kurs. Erfasst werden Käufe wie in der Abrechnung, also in der damaligen Stückelung; auch der vorgeschlagene Schlusskurs ist der damalige. Unter den Positionen steht, welcher Split berücksichtigt wurde. Andere Kapitalmaßnahmen erkennt die App nicht automatisch; sie lassen sich als Transaktionen abbilden: eine Abspaltung (Spin-off) als Kauf der neuen Aktien mit dem Kurs, den die Abrechnung der Depotbank ausweist, eine Fusion oder ein Umtausch als Verkauf der alten und Kauf der neuen Aktie, eine Kapitalerhöhung als Kauf der neuen Aktien zum Bezugspreis.
 
 **Wertentwicklung.**
@@ -204,7 +216,7 @@ portfolio_optimizer/
   monte_carlo.py               GBM-Simulation und Block-Bootstrap
   instability.py               Schätzunsicherheit, Sensitivität, Simulationsexperimente
   market.py                    Suche, Stammdaten, Kurse, Live-Kurse, Wechselkurse (Yahoo und Offline-Demo)
-  portfolio.py                 Transaktionen, FIFO, Aktiensplits, Speichern/Laden mit Papierkorb, Bewertung
+  portfolio.py                 Transaktionen, Sparpläne, FIFO, Aktiensplits, Speichern/Laden mit Papierkorb, Bewertung
   price_store.py               Lokaler Kursspeicher als Rückfall, wenn Yahoo zeitweise nichts liefert
   performance.py               Depotwert, Einzahlungen, zeitgewichtete Rendite, interner Zinsfuß, Indexvergleich
   concentration.py             Klumpenrisiko: Konzentrationen, Cluster, Risikoanteile
