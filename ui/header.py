@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -16,6 +16,7 @@ from ui.state import (
     DEFAULT_NAME,
     PROVIDERS,
     Settings,
+    close_from,
     current_portfolio,
     example_portfolio,
     history_eur,
@@ -157,6 +158,8 @@ def import_upload(provider: str, key: str = "pf_upload") -> None:
         return
     content = upload.getvalue()
     failed: list[str] = []
+    unpriced: list[str] = []  # Kurs leer und kein Schlusskurs gefunden
+    filled = 0
     try:
         if upload.name.lower().endswith(".json"):
             portfolio = Portfolio.from_dict(json.loads(content.decode("utf-8-sig")))
@@ -176,15 +179,24 @@ def import_upload(provider: str, key: str = "pf_upload") -> None:
                 except Exception:  # unbekanntes Symbol oder Netzwerkfehler
                     failed.append(symbol)
             dated = [r[4] for r in rows if r[4]]
+            hist = None
             if infos and dated:  # Splits vorab, damit Verkäufe nach einem Split gedeckt sind
                 try:
-                    portfolio.splits = history_eur(provider, tuple(infos), tuple(i.currency for i in infos.values()),
-                                                   min(dated), date.today()).splits
-                except Exception:  # ohne Splits weiter
+                    hist = history_eur(provider, tuple(infos), tuple(i.currency for i in infos.values()),
+                                       min(dated) - timedelta(days=10), date.today())
+                    portfolio.splits = hist.splits
+                except Exception:  # ohne Splits und Kursübernahme weiter
                     pass
             for symbol, kind, shares, price, when in rows:
                 if symbol not in infos:
                     continue
+                if price is None and when and hist is not None:  # leerer Kurs: Schlusskurs des Tages
+                    close = close_from(hist, symbol, when)
+                    if close is not None:
+                        price = close[0]
+                        filled += 1
+                    else:
+                        unpriced.append(symbol)
                 try:
                     portfolio.add_transaction(infos[symbol], kind, shares, price, when)
                 except ValueError:  # ungedeckter Verkauf
@@ -196,6 +208,10 @@ def import_upload(provider: str, key: str = "pf_upload") -> None:
     set_portfolio(provider, portfolio)
     _show_entry(not portfolio.securities)
     note = f" Übersprungen: {', '.join(sorted(set(failed)))}." if failed else ""
+    if filled:
+        note += f" Bei {filled} {'Transaktion' if filled == 1 else 'Transaktionen'} ohne Kurs gilt der Schlusskurs des Tages."
+    if unpriced:
+        note += f" Ohne Kurs geblieben (kein Schlusskurs bei Yahoo): {', '.join(sorted(set(unpriced)))}."
     flash(f"Portfolio „{portfolio.name}“ mit {len(portfolio.transactions)} Transaktionen importiert.{note}",
           "error" if failed else "success")
 

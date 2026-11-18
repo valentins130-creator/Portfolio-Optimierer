@@ -213,6 +213,18 @@ def instrument_prices(provider: str, start: date, end: date) -> pd.DataFrame:
     return prices_eur(provider, tuple(instruments), tuple(instruments.values()), start, end)
 
 
+def close_from(hist: HistoryEUR, symbol: str, when: date) -> tuple[float, date] | None:
+    """Schlusskurs in Euro am Datum oder am letzten Handelstag davor, in der damaligen Stückelung
+    (liegt danach ein Aktiensplit, gilt der Kurs vor dem Split, so wie in der Abrechnung)."""
+    if symbol not in hist.close.columns:
+        return None
+    series = hist.close[symbol].loc[:pd.Timestamp(when)].dropna()
+    if series.empty or (pd.Timestamp(when) - series.index[-1]).days > 7:  # keine Kurse rund um das Datum
+        return None
+    day = series.index[-1].date()
+    return float(series.iloc[-1]) * split_factor(hist.splits.get(symbol, []), day), day
+
+
 def close_on(provider: str, info: SecurityInfo, when: date) -> tuple[float, date] | None:
     """Tatsächlicher Schlusskurs in Euro am Datum oder am letzten Handelstag davor.
 
@@ -225,13 +237,7 @@ def close_on(provider: str, info: SecurityInfo, when: date) -> tuple[float, date
                            date(when.year, 1, 1) - timedelta(days=10), date.today())
     except Exception:  # Netzwerkfehler: ohne Vorschlag weiter
         return None
-    if info.symbol not in hist.close.columns:
-        return None
-    series = hist.close[info.symbol].loc[:pd.Timestamp(when)].dropna()
-    if series.empty:
-        return None
-    day = series.index[-1].date()
-    return float(series.iloc[-1]) * split_factor(hist.splits.get(info.symbol, []), day), day
+    return close_from(hist, info.symbol, when)
 
 
 # ---------------------------------------------------------------------------
