@@ -97,7 +97,8 @@ python scripts/smoke_test.py https://portfolio-optimierer-production.up.railway.
 - *Depotwert und Einzahlungen:* täglicher Depotwert gegenüber dem netto eingezahlten Kapital (Käufe minus Verkaufserlöse).
 - *Persönliche Rendite p. a.:* interner Zinsfuß (XIRR) aller Ein- und Auszahlungen und des heutigen Depotwerts. Er berücksichtigt, wann wie viel investiert wurde.
 - *Zeitgewichtete Rendite p. a.:* Rendite unabhängig vom Zeitpunkt der Käufe, vergleichbar mit Fonds und Indizes.
-- *Vergleich mit einem Index:* Depot und Index starten beim ersten Kauf mit 100. Zusätzlich zeigt die App, was mit denselben Ein- und Auszahlungen im Index angelegt wäre.
+- *Vergleich mit einem Index:* Depot und Index starten beim ersten Kauf mit 100, beide samt Dividenden (Depot mit den Brutto-Dividenden, Index dividendenbereinigt). Zusätzlich zeigt die App, was mit denselben Ein- und Auszahlungen im Index angelegt wäre.
+- *Brutto-Dividenden:* Am Ex-Tag rechnet die App Stückzahl am Vorabend × Dividende je Aktie laut Yahoo, zum Tageskurs in Euro. Die Beträge zählen als Auszahlung an dich in Gewinn, persönlicher und zeitgewichteter Rendite und erscheinen in der Zeile unter dem Depotwert sowie unter **Entwicklung** (gesamt, letzte 12 Monate, je Jahr und je Position). Brutto heißt vor Quellensteuer und Abgeltungssteuer; gutgeschrieben wird weniger. Thesaurierende Fonds schütten nichts aus, ihre Erträge stecken im Kurs.
 - *Entwicklung je Position:* Gewinn oder Verlust jeder Position seit dem ersten Kauf, realisiert und unrealisiert.
 
 **Kursdaten und Kennzahlen.** Wertentwicklung der Positionen im Analysezeitraum, erwartete Rendite, CAGR, Volatilität, Sharpe-Ratio, maximaler Drawdown und Korrelationen.
@@ -232,7 +233,7 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 ## Grenzen
 
 - Keine Anlageberatung. Die App ist ein Lern- und Analysewerkzeug.
-- Transaktionskosten und Steuern werden nicht berücksichtigt. Ausgeschüttete Dividenden werden nicht als Zahlungen erfasst und fehlen daher in Gewinn und persönlicher Rendite.
+- Transaktionskosten und Steuern werden nicht berücksichtigt. Dividenden zählen brutto, am Ex-Tag statt am Zahltag und so, wie Yahoo sie führt; bei manchen Fonds fehlen dort Ausschüttungen, die Offline-Demo schüttet nie aus.
 - Von den Kapitalmaßnahmen werden nur Aktiensplits automatisch berücksichtigt; Abspaltungen, Fusionen und Bezugsrechte als Transaktionen erfassen (siehe oben).
 - Absicherungen und Umschichtungen beruhen auf historischen Daten. Hedges sichern mit dem Risiko auch die erwartete Rendite ab und verursachen Kosten.
 - Die parametrische Simulation unterstellt normalverteilte Log-Renditen und behandelt die geschätzten Parameter als bekannt. Wie problematisch das ist, zeigt der Abschnitt „Schätzfehler“.

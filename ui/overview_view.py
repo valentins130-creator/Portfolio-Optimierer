@@ -138,7 +138,7 @@ def _performance(ctx: PortfolioContext) -> performance.Performance | None:
     memo = st.session_state.get("_perf")
     if memo and memo[0] == key:
         return memo[1]
-    perf = performance.compute(ctx.portfolio, ctx.prices)
+    perf = performance.compute(ctx.portfolio, ctx.prices, ctx.dividends)
     st.session_state["_perf"] = (key, perf)
     return perf
 

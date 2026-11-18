@@ -110,6 +110,7 @@ class HistoryEUR:
     splits: dict[str, list[tuple[date, float]]]  # Symbol -> [(Ex-Tag, Verhältnis)]
     missing: list[str]  # Symbole ohne Kurse
     stale: dict[str, date]  # Symbole mit Kursen aus dem lokalen Speicher -> letzter Kurstag
+    dividends: pd.DataFrame = field(default_factory=pd.DataFrame)  # Bruttodividende in Euro je Aktie am Ex-Tag
 
 
 def _load_history(provider: str, symbols: tuple[str, ...], currencies: tuple[str, ...], start: date,
@@ -133,8 +134,11 @@ def _load_history(provider: str, symbols: tuple[str, ...], currencies: tuple[str
     for s in have:
         if s not in stale_symbols and major_currency(currency[s])[0] in fx_stale:
             stale_symbols[s] = min(d for t, d in stale.items() if t in fx_tickers)
+    raw_div = hist.dividends.reindex(index=hist.close.index, columns=have).apply(pd.to_numeric, errors="coerce")
+    dividends = to_base_currency(raw_div.fillna(0.0), {s: currency[s] for s in have}, fx)  # Tageskurs des Ex-Tags
     return HistoryEUR(close[have], adjusted.reindex(columns=have), split_events(hist.splits.reindex(columns=have)),
-                      [s for s in symbols if s not in have], stale_symbols)
+                      [s for s in symbols if s not in have], stale_symbols,
+                      dividends.reindex(columns=have).fillna(0.0))
 
 
 class _Incomplete(Exception):
@@ -357,6 +361,7 @@ class PortfolioContext:
     missing: list[str] = field(default_factory=list)
     adjusted: pd.DataFrame = field(default_factory=pd.DataFrame)  # dividendenbereinigt, Analysezeitraum
     stale: dict[str, date] = field(default_factory=dict)  # Kurse aus dem lokalen Speicher -> letzter Kurstag
+    dividends: pd.DataFrame = field(default_factory=pd.DataFrame)  # Bruttodividende in Euro je Aktie am Ex-Tag
 
     @property
     def infos(self) -> dict[str, SecurityInfo]:
@@ -447,7 +452,7 @@ def load_context(settings: Settings, portfolio: Portfolio | None = None) -> Port
     securities = portfolio.securities
     dated = [t.date for t in portfolio.transactions if t.date]
     history_start = min([settings.start, *dated])
-    prices = adjusted = pd.DataFrame()
+    prices = adjusted = dividends = pd.DataFrame()
     stale: dict[str, date] = {}
     if securities:
         try:
@@ -456,14 +461,14 @@ def load_context(settings: Settings, portfolio: Portfolio | None = None) -> Port
         except Exception as exc:  # Netzwerkfehler von yfinance sind nicht einheitlich typisiert
             st.error(f"Kurse konnten nicht geladen werden: {exc}")
         else:
-            prices, adjusted, stale = hist.close, hist.adjusted, hist.stale
+            prices, adjusted, stale, dividends = hist.close, hist.adjusted, hist.stale, hist.dividends
             portfolio.splits = hist.splits  # vor allen Beständen setzen: Splits ändern Stückzahlen
     held = {p.symbol: p.info for p in portfolio.positions}
     quotes = _quotes(provider, held, prices)
     missing = [s for s in held if s not in quotes.index]
     price = quotes["price"] if not quotes.empty else pd.Series(dtype=float)
     return PortfolioContext(provider, settings.start, settings.end, portfolio, prices, quotes,
-                            valuation(portfolio, price), missing, adjusted, stale)
+                            valuation(portfolio, price), missing, adjusted, stale, dividends)
 
 
 # ---------------------------------------------------------------------------

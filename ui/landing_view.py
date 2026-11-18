@@ -22,8 +22,8 @@ from ui.state import Settings
 SPECS = [
     ("Depot", "Käufe und Verkäufe mit Datum, Stückzahl und Kurs. Einstandskurse nach FIFO, Aktiensplits, "
               "Import als CSV oder JSON."),
-    ("Rendite", "Persönliche Rendite (interner Zinsfuß) und zeitgewichtete Rendite, Vergleich mit einem Index, "
-                "Aufteilung nach Sektor und Währung."),
+    ("Rendite", "Persönliche Rendite (interner Zinsfuß) und zeitgewichtete Rendite samt Brutto-Dividenden, "
+                "Vergleich mit einem Index, Aufteilung nach Sektor und Währung."),
     ("Risiko", "Klumpenrisiko nach Einzelwert, Sektor, Währung und Gruppen stark korrelierter Werte, jeweils mit "
                "dem Anteil an der Schwankung und gemessen an deinen eigenen Grenzen."),
     ("Optimierung", "Efficient Frontier nach Markowitz, Monte-Carlo-Simulation mit Sparrate und ein eigener "

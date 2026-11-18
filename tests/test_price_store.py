@@ -33,7 +33,10 @@ def test_fetch_history_retries_missing_tickers_once(monkeypatch):
         splits = pd.DataFrame(0.0, index=index, columns=tickers)
         if "SAP.DE" in tickers:
             splits.loc[index[2], "SAP.DE"] = 2.0
-        return _yahoo({"Close": close, "Adj Close": close * 0.9, "Stock Splits": splits})
+        dividends = pd.DataFrame(0.0, index=index, columns=tickers)
+        if "AAPL" in tickers:
+            dividends.loc[index[3], "AAPL"] = 0.25
+        return _yahoo({"Close": close, "Adj Close": close * 0.9, "Stock Splits": splits, "Dividends": dividends})
 
     monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
     monkeypatch.setattr(data, "RETRY_DELAY", 0)
@@ -43,6 +46,7 @@ def test_fetch_history_retries_missing_tickers_once(monkeypatch):
     assert calls[1][:2] == (["SAP.DE"], False)  # zweiter Versuch einzeln, ohne Parallelität
     assert hist.adj_close.at[index[0], "AAPL"] == pytest.approx(90.0)
     assert split_events(hist.splits) == {"SAP.DE": [(index[2].date(), 2.0)]}
+    assert hist.dividends.at[index[3], "AAPL"] == pytest.approx(0.25)  # Dividende je Aktie am Ex-Tag
 
 
 def test_price_store_fills_gaps_with_last_saved_prices(tmp_path):
@@ -68,3 +72,15 @@ def test_price_store_rescales_old_history_after_a_split(tmp_path):
     # alte Tage auf die neue Skala gebracht: kein Sprung um Faktor 4 zwischen alten und neuen Werten
     assert saved["close"].iloc[2] / saved["close"].iloc[3] == pytest.approx(
         np.linspace(100, 110, 6)[2] / np.linspace(100, 110, 6)[3], rel=0.05)
+
+
+def test_price_store_keeps_dividends(tmp_path):
+    store = PriceStore(tmp_path)
+    index = pd.bdate_range("2026-01-05", periods=5)
+    hist = _history(["AAPL"], index)
+    dividends = pd.DataFrame(0.0, index=index, columns=["AAPL"])
+    dividends.loc[index[2], "AAPL"] = 0.25
+    store.complete(History(hist.close, hist.adj_close, hist.splits, [], dividends), index[0].date(), index[-1].date())
+    gap = _history(["SAP.DE"], index, missing=["AAPL"])
+    filled, _ = store.complete(gap, index[0].date(), index[-1].date())
+    assert filled.dividends.at[index[2], "AAPL"] == pytest.approx(0.25)

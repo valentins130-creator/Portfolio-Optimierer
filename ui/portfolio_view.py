@@ -103,6 +103,9 @@ def _hero(ctx: PortfolioContext) -> None:
     realized = ctx.portfolio.realized_gains()
     if realized:
         parts.append(f"<span>{_signed_eur(realized)} realisiert</span>")
+    paid = float(performance.dividend_payments(ctx.portfolio, ctx.dividends)["amount"].sum())
+    if paid > 0:
+        parts.append(f"<span>{_signed_eur(paid)} Brutto-Dividenden</span>")
     n = len(ctx.portfolio.positions)
     parts.append(f"<span>{n} {'Position' if n == 1 else 'Positionen'}</span>")
     if not ctx.quotes.empty:
@@ -390,7 +393,7 @@ def _transactions(ctx: PortfolioContext) -> None:
 
 
 def _performance(ctx: PortfolioContext, theme) -> None:
-    perf = performance.compute(ctx.portfolio, ctx.prices) if not ctx.prices.empty else None
+    perf = performance.compute(ctx.portfolio, ctx.prices, ctx.dividends) if not ctx.prices.empty else None
     if perf is None:
         st.info("Für die Wertentwicklung braucht es Transaktionen mit Datum und Kurs.")
         return
@@ -399,7 +402,8 @@ def _performance(ctx: PortfolioContext, theme) -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Eingezahlt (netto)", f"{num(perf.invested.iloc[-1])} €",
               help="Summe der Käufe minus Verkaufserlöse.")
-    c2.metric("Gewinn gesamt", f"{num(perf.gain)} €", help="Realisierte und unrealisierte Gewinne zusammen.")
+    c2.metric("Gewinn gesamt", f"{num(perf.gain)} €",
+              help="Realisierte und unrealisierte Gewinne zusammen, dazu die erhaltenen Brutto-Dividenden.")
     c3.metric("Persönliche Rendite p. a.", pct(perf.irr) if perf.irr is not None else "–",
               help="Interner Zinsfuß: berücksichtigt, wann wie viel investiert wurde.")
     c4.metric("Zeitgewichtete Rendite p. a.", pct(perf.twr_annual) if perf.twr_annual is not None else "–",
@@ -409,25 +413,30 @@ def _performance(ctx: PortfolioContext, theme) -> None:
     show_chart(charts.value_chart(perf.value, perf.invested, theme))
 
     st.markdown("**Vergleich mit einem Index**", help="Beide Linien starten beim ersten Kauf mit 100 und zeigen die "
-                "zeitgewichtete Kursentwicklung; ausgeschüttete Dividenden sind in beiden nicht enthalten.")
+                "zeitgewichtete Entwicklung samt Dividenden: beim Depot die Brutto-Dividenden, beim Index der "
+                "dividendenbereinigte Kurs.")
     markets = {i.symbol: i for i in get_provider(ctx.provider).instruments if i.kind == "market"}
     bench = st.selectbox("Index", list(markets), format_func=lambda s: markets[s].label, key="perf_bench",
                          label_visibility="collapsed", width=320)
     try:
         series = prices_eur(ctx.provider, (bench,), (markets[bench].currency,), perf.value.index[0].date(), ctx.end,
-                            adjusted=False)
+                            adjusted=True)
     except Exception as exc:  # Netzwerkfehler
         st.warning(f"Indexkurse nicht verfügbar: {exc}")
         series = pd.DataFrame()
     if bench in series:
         indexed, same_flows = performance.benchmark(perf, series[bench])
         show_chart(charts.benchmark_chart(perf.twr, indexed, markets[bench].label, theme))
-        diff = perf.value.iloc[-1] - same_flows
+        own = perf.value.iloc[-1] + perf.dividend_total
+        diff = own - same_flows
+        with_div = f" samt {num(perf.dividend_total)} € Brutto-Dividenden" if perf.dividend_total > 0 else ""
         st.caption(f"Dieselben Ein- und Auszahlungen im {markets[bench].label} wären heute {num(same_flows)} € wert – "
-                   f"dein Depot liegt {num(abs(diff))} € {'darüber' if diff >= 0 else 'darunter'}.")
+                   f"dein Depot{with_div} liegt {num(abs(diff))} € {'darüber' if diff >= 0 else 'darunter'}.")
+
+    _dividends(ctx)
 
     st.markdown("**Entwicklung je Position**", help="Gewinn oder Verlust seit dem ersten Kauf: aktueller Wert minus "
-                "Einzahlungen plus Verkaufserlöse, also realisiert und unrealisiert.")
+                "Einzahlungen plus Verkaufserlöse und Brutto-Dividenden, also realisiert und unrealisiert.")
     labels = ctx.labels
     pnl = perf.position_pnl.rename(columns=labels)
     order = list(perf.position_value.iloc[-1].sort_values(ascending=False).rename(index=labels).index)
@@ -435,6 +444,41 @@ def _performance(ctx: PortfolioContext, theme) -> None:
                             label_visibility="collapsed")
     if chosen:
         show_chart(charts.position_pnl_chart(pnl[chosen], theme))
+
+
+def _dividends(ctx: PortfolioContext) -> None:
+    """Erhaltene Brutto-Dividenden: Summe, letzte zwölf Monate, je Jahr und je Position."""
+    paid = performance.dividend_payments(ctx.portfolio, ctx.dividends)
+    st.markdown("**Brutto-Dividenden**", help="Am Ex-Tag gebucht: Stückzahl am Vorabend mal Dividende je Aktie laut "
+                "Yahoo Finance, zum Wechselkurs des Tages in Euro. Brutto heißt vor Quellensteuer und "
+                "Abgeltungssteuer; gutgeschrieben wird weniger. Thesaurierende Fonds schütten nichts aus, ihre "
+                "Erträge stecken im Kurs.")
+    if paid.empty:
+        st.caption("Bisher keine Brutto-Dividenden: Die Positionen haben im Haltezeitraum nichts ausgeschüttet "
+                   "(oder Yahoo führt keine Ausschüttungen dafür, die Offline-Demo schüttet nie aus).")
+        return
+    dates = pd.to_datetime(paid["date"])
+    recent = paid.loc[dates >= pd.Timestamp(date.today()) - pd.DateOffset(years=1), "amount"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Brutto-Dividenden gesamt", f"{num(paid['amount'].sum(), 2)} €")
+    c2.metric("Brutto-Dividenden, letzte 12 Monate", f"{num(recent, 2)} €")
+    c3.metric("Ausschüttungen", f"{len(paid)}")
+    by_year = (paid.assign(Jahr=dates.dt.year).groupby("Jahr", as_index=False)["amount"].sum()
+               .rename(columns={"amount": "Brutto-Dividende"}).sort_values("Jahr", ascending=False))
+    by_year["Jahr"] = by_year["Jahr"].astype(str)
+    labels = ctx.labels
+    by_position = (paid.groupby("symbol").agg(betrag=("amount", "sum"), anzahl=("amount", "size"), letzte=("date", "max"))
+                   .sort_values("betrag", ascending=False).reset_index())
+    by_position = pd.DataFrame({
+        "Position": [labels.get(s, s) for s in by_position["symbol"]], "Brutto-Dividende": by_position["betrag"],
+        "Ausschüttungen": by_position["anzahl"], "Letzte (Ex-Tag)": pd.to_datetime(by_position["letzte"]).dt.date,
+    })
+    left, right = st.columns([1, 2], gap="medium")
+    left.dataframe(by_year, hide_index=True, column_config={
+        "Brutto-Dividende": st.column_config.NumberColumn("Brutto-Dividende €", format="euro")})
+    right.dataframe(by_position, hide_index=True, column_config={
+        "Brutto-Dividende": st.column_config.NumberColumn("Brutto-Dividende €", format="euro"),
+        "Letzte (Ex-Tag)": st.column_config.DateColumn(format="DD.MM.YYYY")})
 
 
 # ---------------------------------------------------------------------------

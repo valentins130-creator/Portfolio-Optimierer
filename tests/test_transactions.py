@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from portfolio_optimizer.market import SecurityInfo
-from portfolio_optimizer.performance import benchmark, compute, xirr
+from portfolio_optimizer.performance import benchmark, compute, dividend_payments, xirr
 from portfolio_optimizer.portfolio import BUY, SELL, Portfolio, Transaction, fifo, read_transactions_csv, sale_gain
 
 A = SecurityInfo("A", "Aktie A")
@@ -155,3 +155,33 @@ def test_performance_skips_undated_transactions():
     pf.add_transaction(A, BUY, 1, 100.0, date(2024, 1, 1))
     perf = compute(pf, pd.DataFrame({"A": [100.0, 101.0]}, index=pd.bdate_range("2024-01-01", periods=2)))
     assert perf.skipped == 1
+
+
+def test_gross_dividends_go_to_whoever_held_the_evening_before():
+    idx = pd.bdate_range("2024-01-01", periods=6)
+    dividends = pd.DataFrame(0.0, index=idx, columns=["A"])
+    dividends.loc[idx[2], "A"] = 2.0  # Ex-Tag 03.01.
+    dividends.loc[idx[5], "A"] = 1.0  # Ex-Tag 08.01.
+    pf = Portfolio("Test")
+    pf.add_transaction(A, BUY, 10, 100.0, idx[0].date())
+    pf.add_transaction(A, BUY, 5, 100.0, idx[2].date())  # am Ex-Tag gekauft: zählt erst beim nächsten
+    pf.add_transaction(A, SELL, 15, 100.0, idx[4].date())  # vor dem zweiten Ex-Tag alles verkauft
+    paid = dividend_payments(pf, dividends)
+    assert paid[["date", "shares", "amount"]].values.tolist() == [[idx[2].date(), 10.0, 20.0]]
+
+
+def test_gross_dividends_count_in_gain_irr_and_twr():
+    """Kurs bleibt gleich, ausgeschüttet werden 5 %: Gewinn = Dividende, beide Renditen positiv."""
+    idx = pd.bdate_range("2024-01-01", periods=260)
+    prices = pd.DataFrame({"A": 100.0}, index=idx)
+    dividends = pd.DataFrame(0.0, index=idx, columns=["A"])
+    dividends.loc[idx[130], "A"] = 5.0
+    pf = Portfolio("Test")
+    pf.add_transaction(A, BUY, 10, 100.0, idx[0].date())
+    without = compute(pf, prices)
+    perf = compute(pf, prices, dividends)
+    assert without.gain == pytest.approx(0.0) and perf.gain == pytest.approx(50.0)
+    assert perf.dividend_total == pytest.approx(50.0) and perf.dividends.index[0] == idx[130]
+    assert perf.twr.iloc[-1] == pytest.approx(105.0)
+    assert 0.04 < perf.irr < 0.06
+    assert perf.position_pnl.iloc[-1]["A"] == pytest.approx(50.0)

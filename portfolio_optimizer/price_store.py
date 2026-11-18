@@ -16,7 +16,7 @@ import pandas as pd
 
 from .data import History
 
-COLUMNS = ["close", "adj_close", "split"]
+COLUMNS = ["close", "adj_close", "split", "dividend"]
 
 
 def _merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
@@ -32,6 +32,8 @@ def _merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
             ratio = float((both.iloc[:, 1] / both.iloc[:, 0]).median())
             if np.isfinite(ratio) and ratio > 0:
                 old[column] = old[column] * ratio
+                if column == "close":  # Dividenden je Aktie folgen den Splits wie der Kurs
+                    old["dividend"] = old["dividend"] * ratio
     return new.combine_first(old)[COLUMNS].sort_index()
 
 
@@ -59,6 +61,7 @@ class PriceStore:
                 "close": hist.close[ticker],
                 "adj_close": hist.adj_close[ticker] if ticker in hist.adj_close else np.nan,
                 "split": hist.splits[ticker] if ticker in hist.splits else np.nan,
+                "dividend": hist.dividends[ticker] if ticker in hist.dividends else np.nan,
             }).dropna(subset=["close"])
             if new.empty:
                 continue
@@ -77,7 +80,7 @@ class PriceStore:
         except OSError:  # z. B. schreibgeschützter Ordner: dann eben ohne Speicher
             pass
         stale: dict[str, date] = {}
-        close, adj, splits = {}, {}, {}
+        close, adj, splits, dividends = {}, {}, {}, {}
         for ticker in hist.missing:
             df = self.load(ticker)
             part = df.loc[pd.Timestamp(start):pd.Timestamp(end)] if df is not None else None
@@ -86,6 +89,7 @@ class PriceStore:
             close[ticker] = part["close"]
             adj[ticker] = part["adj_close"].fillna(part["close"])
             splits[ticker] = part["split"].fillna(0.0)
+            dividends[ticker] = part["dividend"].fillna(0.0)
             stale[ticker] = part["close"].dropna().index[-1].date()
         if not close:
             return hist, stale
@@ -94,4 +98,5 @@ class PriceStore:
             pd.concat([hist.adj_close, pd.DataFrame(adj)], axis=1),
             pd.concat([hist.splits, pd.DataFrame(splits)], axis=1),
             [t for t in hist.missing if t not in close],
+            pd.concat([hist.dividends, pd.DataFrame(dividends)], axis=1),
         ), stale

@@ -531,6 +531,11 @@ def fake_yfinance(monkeypatch):
             if "AAPL" in tickers and split_day in index:
                 splits.at[split_day, "AAPL"] = 4.0
             frames["Stock Splits"] = splits
+            dividends = pd.DataFrame(0.0, index=index, columns=tickers)
+            ex_day = pd.bdate_range(end=pd.Timestamp(date.today() - timedelta(days=100)), periods=1)[0]
+            if "SAP.DE" in tickers and ex_day in index:
+                dividends.at[ex_day, "SAP.DE"] = 2.2  # Euro je Aktie
+            frames["Dividends"] = dividends
         return pd.concat(frames, axis=1)
 
     monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=Search, Ticker=Ticker,
@@ -556,6 +561,10 @@ def test_yahoo_portfolio_uses_live_prices(fake_yfinance, tmp_path, monkeypatch):
     assert positions.at["AAPL", "Ø Kaufkurs"] == pytest.approx(25.0)
     assert positions.at["SAP.DE", "Stück"] == pytest.approx(20.0)
     assert any("4:1" in c.value for c in at.caption)
+    assert "+44 € Brutto-Dividenden" in _hero(at)  # 20 SAP-Aktien × 2,20 €
+    _open(at, "depot", "performance")
+    _assert_clean(at)
+    assert any(m.label == "Brutto-Dividenden gesamt" and m.value == "44,00 €" for m in at.metric)
     for page in ("analysen", "uebersicht"):
         _open(at, page)
         _assert_clean(at)

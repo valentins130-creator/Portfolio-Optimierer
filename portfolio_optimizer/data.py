@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import numpy as np
@@ -115,13 +115,15 @@ class History:
     ``close``: tatsächliche Schlusskurse (von Yahoo nur um Splits bereinigt) für die Bewertung,
     ``adj_close``: zusätzlich dividendenbereinigt für Renditen und Risiko,
     ``splits``: Split-Verhältnis am Ex-Tag (4 bei 4:1, 0,1 bei 1:10), sonst 0 oder leer,
-    ``missing``: Ticker ohne Kurse.
+    ``missing``: Ticker ohne Kurse,
+    ``dividends``: Bruttodividende je Aktie am Ex-Tag (wie die Kurse splitbereinigt), sonst 0 oder leer.
     """
 
     close: pd.DataFrame
     adj_close: pd.DataFrame
     splits: pd.DataFrame
     missing: list[str]
+    dividends: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _download_history(tickers: list[str], start: date, end: date, threads: bool) -> History:
@@ -139,10 +141,12 @@ def _download_history(tickers: list[str], start: date, end: date, threads: bool)
     close = _extract_close(raw, tickers, "Close")
     adj = _extract_close(raw, tickers, "Adj Close")
     splits = _extract_close(raw, tickers, "Stock Splits")
+    dividends = _extract_close(raw, tickers, "Dividends")
     have = [t for t in tickers if t in close.columns and close[t].notna().any()]
     adj = adj.reindex(columns=have)
     adj = adj.fillna(close[have]) if have else adj  # Devisen u. Ä. haben keine eigene bereinigte Reihe
-    return History(close[have], adj, splits.reindex(columns=have), [t for t in tickers if t not in have])
+    return History(close[have], adj, splits.reindex(columns=have), [t for t in tickers if t not in have],
+                   dividends.reindex(columns=have))
 
 
 def fetch_history(tickers: Sequence[str], start: date, end: date) -> History:
@@ -164,6 +168,7 @@ def fetch_history(tickers: Sequence[str], start: date, end: date) -> History:
                 pd.concat([hist.adj_close, again.adj_close], axis=1),
                 pd.concat([hist.splits, again.splits], axis=1),
                 again.missing,
+                pd.concat([hist.dividends, again.dividends], axis=1),
             )
     return hist
 
