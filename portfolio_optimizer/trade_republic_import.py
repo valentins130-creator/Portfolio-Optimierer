@@ -210,4 +210,4 @@ def is_broker_csv(content: bytes) -> bool:
     """Detect broker/review exports by headers regardless of order, BOM or delimiter."""
     columns = pd.read_csv(io.BytesIO(content), sep=None, engine="python", nrows=0, encoding="utf-8-sig").columns
     names = {name.strip().lower() for name in columns}
-    return {"type", "symbol", "shares"}.issubset(names) or bool(names & {"bestätigt", "prüfhinweis", "bestandsänderung"})
+    return ({"type", "symbol", "shares"}.issubset(names) and bool(names & {"transaction_id", "asset_class", "datetime", "account_type", "original_amount"})) or bool(names & {"bestätigt", "prüfhinweis", "bestandsänderung"})
