@@ -264,3 +264,30 @@ Die Tests prüfen unter anderem die Optimierer gegen geschlossene Lösungen, den
 - Ledoit, O. & Wolf, M. (2004): Honey, I Shrunk the Sample Covariance Matrix. *Journal of Portfolio Management* 30(4).
 - Jagannathan, R. & Ma, T. (2003): Risk Reduction in Large Portfolios: Why Imposing the Wrong Constraints Helps. *Journal of Finance* 58(4).
 - DeMiguel, V., Garlappi, L. & Uppal, R. (2009): Optimal Versus Naive Diversification: How Inefficient Is the 1/N Portfolio Strategy? *Review of Financial Studies* 22(5).
+
+ 
+### Trade Republic: PDF-Vermögensübersicht und Transaktions-CSV
+
+Unter **Verwalten → Trade Republic** können Vermögensübersichten (PDF) und
+Transaktionshistorien (CSV) eingelesen werden. Das PDF liefert die Bestände und
+EUR-Marktwerte am Belegstichtag; die CSV ist ein separates Prüfprotokoll.
+Die beiden Quellen werden **nicht addiert**, damit Positionen nicht doppelt
+gezählt werden.
+
+Die PDF-Vorschau zeigt alle ausgelesenen Positionen einschließlich einer
+**ungeprüften** Aufteilung nach Anlageklassen. Erst nach ausdrücklicher
+Bestätigung und Validierung werden Positionen in die **bestätigte**
+Wertaufteilung und den bereinigten CSV-Export übernommen. Fehlende oder doppelte
+Kennungen und ungültige Stückzahlen/Werte sind ausgeschlossen.
+
+Bei der Transaktions-CSV beeinflussen nur plausibel erfasste `BUY` und `SELL`
+den vorläufigen Stückbestand. `DIVIDEND`, `DISTRIBUTION`, Zinsen,
+Einzahlungen, Steuerbuchungen und Kartentransaktionen erzeugen keine
+zusätzlichen Anteile. `FREE_RECEIPT`, `SPLIT`, `MERGER` und andere
+Kapitalmaßnahmen müssen manuell geprüft werden. Ohne PDF sind keine verlässlichen
+aktuellen **Wertanteile** aus historischen Transaktionen ableitbar.
+
+**Wichtig:** Das ist eine Import-/Kontrollansicht mit CSV-Export, keine
+automatische Übernahme der ISINs in die Yahoo-Finance-gestützte
+Optimierungsrechnung. Dafür wären zusätzlich geprüfte Tickermappings nötig.
+Die Anwendung schreibt die hochgeladenen Originaldokumente nicht in GitHub.
