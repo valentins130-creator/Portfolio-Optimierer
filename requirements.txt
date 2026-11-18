@@ -4,3 +4,4 @@ scipy>=1.11
 plotly>=5.24
 streamlit~=1.67.0  # getestete Version; neuere erst nach einem Testlauf freigeben
 yfinance>=0.2.54
+pdfplumber>=0.11.0
