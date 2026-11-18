@@ -213,6 +213,14 @@ class StrategyExperiment:
         )
 
 
+def resampled_max_sharpe(est: Estimates, rf: float, bounds: Bounds, n_resamples: int = 100,
+                         seed: int = 7) -> np.ndarray | None:
+    """Max-Sharpe geglättet nach Michaud: Mittel der Max-Sharpe-Gewichte aus ``n_resamples`` Schätzungen,
+    die zur Unsicherheit der Stichprobe passen. Fester Startwert, damit dieselben Daten dasselbe Ergebnis
+    geben. Weniger extrem als das klassische Max-Sharpe; liegt dafür etwas unter dem geschätzten Rand."""
+    return _resampled_max_sharpe(est, rf, bounds, n_resamples, np.random.default_rng(seed))
+
+
 def _resampled_max_sharpe(
     est: Estimates, rf: float, bounds: Bounds, n_resamples: int, rng: np.random.Generator
 ) -> np.ndarray | None:

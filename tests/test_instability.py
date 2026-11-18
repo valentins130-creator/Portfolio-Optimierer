@@ -84,3 +84,20 @@ def test_actual_frontiers_lie_below_true_frontier(model):
         for vol, ret in zip(fr.vols, fr.returns):
             best = efficient_risk(model.mu, model.cov, vol, (0, 1)) @ model.mu
             assert ret <= best + 1e-6
+
+
+def test_resampled_max_sharpe_is_reproducible_and_less_concentrated():
+    """Michaud-Glättung: gleiche Daten, gleiches Ergebnis; breiter gestreut als das klassische Max-Sharpe."""
+    from portfolio_optimizer.estimators import Estimates
+    from portfolio_optimizer.instability import resampled_max_sharpe
+    from portfolio_optimizer.optimization import max_sharpe
+
+    mu = np.array([0.09, 0.07, 0.06, 0.05])
+    vol = np.array([0.22, 0.18, 0.16, 0.12])
+    cov = np.outer(vol, vol) * (0.5 + 0.5 * np.eye(4))
+    est = Estimates(["A", "B", "C", "D"], mu, cov, n_obs=5 * 252)
+    classic = max_sharpe(mu, cov, 0.02, (0.0, 1.0))
+    smooth = resampled_max_sharpe(est, 0.02, (0.0, 1.0))
+    assert smooth.sum() == pytest.approx(1.0) and (smooth >= -1e-9).all()
+    assert np.allclose(smooth, resampled_max_sharpe(est, 0.02, (0.0, 1.0)))
+    assert 1 / (smooth**2).sum() > 1 / (classic**2).sum()  # mehr effektive Positionen

@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from portfolio_optimizer import charts, data, hedging as hg, optimization as opt
+from portfolio_optimizer import instability as ins
 from portfolio_optimizer import concentration as conc
 from portfolio_optimizer import migrations
 from portfolio_optimizer.estimators import Estimates, estimate
@@ -242,10 +243,11 @@ def close_on(provider: str, info: SecurityInfo, when: date) -> tuple[float, date
 class Settings:
     provider: str = "yahoo"
     years: int = 5
-    mean_method: str = "sample"
-    cov_method: str = "sample"
+    mean_method: str = "bayes_stein"  # Shrinkage als Standard: dämpft die Schätzfehler der Optimierung
+    cov_method: str = "ledoit_wolf"
     rf: float = 0.02
     bounds: tuple[float, float] | None = (0.0, 1.0)
+    resample: bool = True  # Max-Sharpe nach Michaud glätten
 
     @property
     def end(self) -> date:
@@ -510,6 +512,21 @@ class RunState:
     est: Estimates | None = None
     bounds: tuple[float, float] | None = (0.0, 1.0)
     bounds_error: str | None = None
+
+
+@st.cache_data(show_spinner="Glätte Max-Sharpe …", max_entries=50)
+def _resampled_max_sharpe(mu: np.ndarray, cov: np.ndarray, n_obs: int, periods_per_year: int, rf: float,
+                          bounds: tuple[float, float] | None) -> np.ndarray | None:
+    est = Estimates([str(i) for i in range(len(mu))], np.asarray(mu), np.asarray(cov), n_obs, periods_per_year)
+    return ins.resampled_max_sharpe(est, rf, bounds)
+
+
+def max_sharpe(run: RunState) -> np.ndarray | None:
+    """Max-Sharpe-Gewichte wie unter Einstellungen gewählt: nach Michaud geglättet (Standard) oder klassisch."""
+    est = run.est
+    if run.settings.resample:
+        return _resampled_max_sharpe(est.mu, est.cov, est.n_obs, est.periods_per_year, run.settings.rf, run.bounds)
+    return opt.max_sharpe(est.mu, est.cov, run.settings.rf, run.bounds)
 
 
 def build_run(settings: Settings, ctx: PortfolioContext, th: charts.Theme) -> RunState:

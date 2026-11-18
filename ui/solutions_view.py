@@ -21,6 +21,7 @@ from ui.state import (
     current_limits,
     fx_weekly_returns,
     instrument_prices,
+    max_sharpe,
     prices_eur,
     security_info,
 )
@@ -89,7 +90,7 @@ def _target_weights(run: RunState, goal: str, report, use_world: bool) -> tuple[
     elif goal == "gmv":
         w = opt.min_variance(est.cov, bounds)
     else:
-        w = opt.max_sharpe(est.mu, est.cov, run.settings.rf, bounds)
+        w = max_sharpe(run)
         if w is None:
             st.warning("Kein Portfolio erwartet eine Rendite über dem risikolosen Zins.")
             return None, {}

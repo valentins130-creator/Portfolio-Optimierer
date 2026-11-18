@@ -185,3 +185,16 @@ def test_gross_dividends_count_in_gain_irr_and_twr():
     assert perf.twr.iloc[-1] == pytest.approx(105.0)
     assert 0.04 < perf.irr < 0.06
     assert perf.position_pnl.iloc[-1]["A"] == pytest.approx(50.0)
+
+
+def test_returns_under_one_year_are_not_annualized():
+    """5 % in gut drei Monaten: p. a. wären es rund 20 %, angezeigt werden die tatsächlichen 5 %."""
+    idx = pd.bdate_range("2024-01-01", periods=70)
+    prices = pd.DataFrame({"A": np.r_[np.full(69, 100.0), 105.0]}, index=idx)
+    pf = Portfolio("Test")
+    pf.add_transaction(A, BUY, 10, 100.0, idx[0].date())
+    perf = compute(pf, prices)
+    assert not perf.annualized and perf.days < 365
+    assert perf.twr_total == pytest.approx(0.05)
+    assert perf.irr_total == pytest.approx(0.05, abs=1e-4)
+    assert perf.irr > 0.15  # die Hochrechnung, die die App erst ab einem Jahr zeigt

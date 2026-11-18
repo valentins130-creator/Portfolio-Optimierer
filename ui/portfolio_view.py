@@ -568,10 +568,16 @@ def _performance(ctx: PortfolioContext, theme) -> None:
               help="Summe der Käufe minus Verkaufserlöse.")
     c2.metric("Gewinn gesamt", f"{num(perf.gain)} €",
               help="Realisierte und unrealisierte Gewinne zusammen, dazu die erhaltenen Brutto-Dividenden.")
-    c3.metric("Persönliche Rendite p. a.", pct(perf.irr) if perf.irr is not None else "–",
-              help="Interner Zinsfuß: berücksichtigt, wann wie viel investiert wurde.")
-    c4.metric("Zeitgewichtete Rendite p. a.", pct(perf.twr_annual) if perf.twr_annual is not None else "–",
-              help="Rendite unabhängig vom Zeitpunkt der Käufe – vergleichbar mit Fonds und Indizes.")
+    # Erst ab einem Jahr p. a.; vorher die tatsächliche Rendite seit dem ersten Kauf (keine Hochrechnung)
+    since = "p. a." if perf.annualized else f"seit {perf.value.index[0]:%d.%m.%Y}"
+    irr = perf.irr if perf.annualized else perf.irr_total
+    twr = perf.twr_annual if perf.annualized else perf.twr_total
+    short = ("" if perf.annualized else " Unter einem Jahr Haltedauer zeigt die App die tatsächliche Rendite seit dem "
+             "ersten Kauf, nicht aufs Jahr hochgerechnet: Das würde kurze Schwankungen vervielfachen.")
+    c3.metric(f"Persönliche Rendite {since}", pct(irr) if irr is not None else "–",
+              help="Interner Zinsfuß: berücksichtigt, wann wie viel investiert wurde." + short)
+    c4.metric(f"Zeitgewichtete Rendite {since}", pct(twr) if twr is not None else "–",
+              help="Rendite unabhängig vom Zeitpunkt der Käufe – vergleichbar mit Fonds und Indizes." + short)
 
     st.markdown("**Depotwert und Einzahlungen**")
     show_chart(charts.value_chart(perf.value, perf.invested, theme))

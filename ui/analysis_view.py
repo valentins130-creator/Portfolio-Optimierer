@@ -16,7 +16,7 @@ from portfolio_optimizer.formatting import num, pct, ratio, styled
 from ui import xray
 from ui.common import choose, delta, page_head, show_chart, show_flash, sub_head
 from ui.solutions_view import hedges, rebalancing
-from ui.state import PortfolioContext, RunState, current_limits
+from ui.state import PortfolioContext, RunState, current_limits, max_sharpe
 
 TARGET = charts.TARGET_PORTFOLIO
 OWN = charts.OWN_PORTFOLIO
@@ -172,7 +172,7 @@ def standard_portfolios(run: RunState) -> dict[str, np.ndarray]:
     named = {
         OWN: run.ctx.own_weights(est.assets),
         TARGET: target_weights(run)[0],
-        "Max-Sharpe": opt.max_sharpe(est.mu, est.cov, run.settings.rf, bounds),
+        "Max-Sharpe": max_sharpe(run),
         "Minimum-Varianz": opt.min_variance(est.cov, bounds),
         "Gleichgewichtet (1/N)": np.full(n, 1 / n),
     }
@@ -187,13 +187,17 @@ def frontier(run: RunState) -> None:
     est, bounds, rf, theme = run.est, run.bounds, run.settings.rf, run.theme
     curve = opt.efficient_frontier(est.mu, est.cov, bounds, n_points=60)
     w_gmv = opt.min_variance(est.cov, bounds)
-    w_ms = opt.max_sharpe(est.mu, est.cov, rf, bounds)
+    w_ms = max_sharpe(run)
     own = run.ctx.own_weights(est.assets)
     vol_gmv = opt.portfolio_stats(w_gmv, est.mu, est.cov)[1]
     vol_max = float(curve.vols.max())
     if w_ms is None:
         st.warning("Kein zulässiges Portfolio erwartet eine Rendite über dem risikolosen Zins – das "
                    "Max-Sharpe-Portfolio existiert daher nicht.")
+    elif run.settings.resample:
+        st.caption("Max-Sharpe ist nach Michaud geglättet: das Mittel aus 100 Schätzungen, die zur Unsicherheit "
+                   "der Daten passen. Es liegt deshalb etwas unter dem geschätzten Rand, ist aber breiter gestreut "
+                   "und weniger anfällig für Schätzfehler. Abschalten unter Einstellungen.")
 
     target_vol = vol_gmv
     if vol_max - vol_gmv > 0.002:

@@ -40,6 +40,27 @@ class Performance:
     dividends: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))  # Bruttodividenden je Tag
 
     @property
+    def days(self) -> int:
+        """Tage seit dem ersten Kauf."""
+        return int((self.value.index[-1] - self.value.index[0]).days)
+
+    @property
+    def annualized(self) -> bool:
+        """Erst ab einem Jahr Haltedauer sind Renditen p. a. aussagekräftig; vorher würde die Hochrechnung
+        kurze Schwankungen vervielfachen (5 % in einem Monat wären rund 80 % p. a.)."""
+        return self.days >= 365
+
+    @property
+    def irr_total(self) -> float | None:
+        """Persönliche Rendite über die ganze Haltedauer, nicht hochgerechnet."""
+        return None if self.irr is None else float((1 + self.irr) ** (self.days / 365.25) - 1)
+
+    @property
+    def twr_total(self) -> float:
+        """Zeitgewichtete Rendite über die ganze Haltedauer, nicht hochgerechnet."""
+        return float(self.twr.iloc[-1] / 100 - 1)
+
+    @property
     def twr_annual(self) -> float | None:
         days = (self.twr.index[-1] - self.twr.index[0]).days
         return float((self.twr.iloc[-1] / 100) ** (365.25 / days) - 1) if days >= 30 else None

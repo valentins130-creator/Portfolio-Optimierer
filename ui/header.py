@@ -66,12 +66,17 @@ def _settings_popover() -> Settings:
                                   "des Depots reicht immer bis zum ersten Kauf zurück.")
     st.markdown("**Schätzung**")
     mean_method = st.selectbox("Erwartete Renditen", list(MEAN_ESTIMATORS), format_func=MEAN_ESTIMATORS.get,
-                               key="set_mean",
+                               index=list(MEAN_ESTIMATORS).index(Settings.mean_method), key="set_mean",
                                help="Bayes-Stein zieht die historischen Mittelwerte in Richtung eines gemeinsamen "
                                     "Werts und dämpft so Ausreißer der Schätzung.")
-    cov_method = st.selectbox("Kovarianzen", list(COV_ESTIMATORS), format_func=COV_ESTIMATORS.get, key="set_cov",
+    cov_method = st.selectbox("Kovarianzen", list(COV_ESTIMATORS), format_func=COV_ESTIMATORS.get,
+                              index=list(COV_ESTIMATORS).index(Settings.cov_method), key="set_cov",
                               help="Ledoit-Wolf zieht die Korrelationen in Richtung ihres Durchschnitts und "
                                    "stabilisiert so die Matrix.")
+    resample = st.toggle("Max-Sharpe glätten (Resampling nach Michaud)", value=True, key="set_resample",
+                         help="Mittelt die Max-Sharpe-Gewichte aus 100 Schätzungen, die zur Unsicherheit der Daten "
+                              "passen. Das Ergebnis ist breiter gestreut und hängt weniger an zufällig hohen "
+                              "Renditeschätzungen; ausgeschaltet gilt das klassische Max-Sharpe-Portfolio.")
     rf = st.number_input("Risikoloser Zins p. a. (%)", -2.0, 10.0, 2.0, 0.25, format="%.2f", key="set_rf") / 100
     st.markdown("**Gewichtsgrenzen** (Markowitz und Umschichtung)")
     allow_short = st.toggle("Leerverkäufe erlauben", value=False, key="set_short")
@@ -87,7 +92,7 @@ def _settings_popover() -> Settings:
                        key="set_hi") / 100
         bounds = (lo, hi)
     st.caption("Alle Werte in Euro; Fremdwährungen werden mit den Wechselkursen umgerechnet.")
-    return Settings(provider, years, mean_method, cov_method, rf, bounds)
+    return Settings(provider, years, mean_method, cov_method, rf, bounds, resample)
 
 
 # ---------------------------------------------------------------------------

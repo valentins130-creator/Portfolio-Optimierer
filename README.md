@@ -107,7 +107,7 @@ Beides lässt sich rückgängig machen.
 **Wertentwicklung.**
 
 - *Depotwert und Einzahlungen:* täglicher Depotwert gegenüber dem netto eingezahlten Kapital (Käufe minus Verkaufserlöse).
-- *Persönliche Rendite p. a.:* interner Zinsfuß (XIRR) aller Ein- und Auszahlungen und des heutigen Depotwerts. Er berücksichtigt, wann wie viel investiert wurde.
+- *Persönliche Rendite p. a.:* interner Zinsfuß (XIRR) aller Ein- und Auszahlungen und des heutigen Depotwerts. Er berücksichtigt, wann wie viel investiert wurde. Unter einem Jahr Haltedauer zeigen persönliche und zeitgewichtete Rendite die tatsächliche Rendite „seit“ dem ersten Kauf statt einer Hochrechnung aufs Jahr, die kurze Schwankungen vervielfachen würde.
 - *Zeitgewichtete Rendite p. a.:* Rendite unabhängig vom Zeitpunkt der Käufe, vergleichbar mit Fonds und Indizes.
 - *Vergleich mit einem Index:* Depot und Index starten beim ersten Kauf mit 100, beide samt Dividenden (Depot mit den Brutto-Dividenden, Index dividendenbereinigt). Zusätzlich zeigt die App, was mit denselben Ein- und Auszahlungen im Index angelegt wäre.
 - *Brutto-Dividenden:* Am Ex-Tag rechnet die App Stückzahl am Vorabend × Dividende je Aktie laut Yahoo, zum Tageskurs in Euro. Die Beträge zählen als Auszahlung an dich in Gewinn, persönlicher und zeitgewichteter Rendite und erscheinen in der Zeile unter dem Depotwert sowie unter **Entwicklung** (gesamt, letzte 12 Monate, je Jahr und je Position). Brutto heißt vor Quellensteuer und Abgeltungssteuer; gutgeschrieben wird weniger. Thesaurierende Fonds schütten nichts aus, ihre Erträge stecken im Kurs.
@@ -165,6 +165,8 @@ Fehlt ein Fonds dauerhaft, hilft oft die Suche nach seiner ISIN und die Wahl ein
 
 **Schätzung.** Grundlage sind einfache Tagesrenditen. Erwartete Renditen und Kovarianzen werden mit 252 Handelstagen annualisiert.
 
+Voreingestellt sind Bayes-Stein und Ledoit-Wolf (unter **Einstellungen** auf die Stichprobenschätzer umstellbar), weil sie die Schätzfehler der Optimierung dämpfen.
+
 - *Bayes-Stein (Jorion 1986):* zieht die Mittelwerte in Richtung der Rendite des Minimum-Varianz-Portfolios.
 - *Ledoit-Wolf (2004):* Shrinkage der Kovarianzmatrix zum Modell konstanter Korrelation. Die Varianzen bleiben dabei erhalten.
 
@@ -172,7 +174,7 @@ Fehlt ein Fonds dauerhaft, hilft oft die Suche nach seiner ISIN und die Wahl ein
 
 $$\min_w \; w^\top \Sigma w \quad \text{u. d. N.} \quad w^\top\mu = r^*,\quad \mathbf 1^\top w = 1,\quad l \le w_i \le u$$
 
-gelöst, mit Gewichtsgrenzen numerisch (SLSQP) und ohne Grenzen in geschlossener Form. Das Max-Sharpe-Portfolio wird über das konvexe Ersatzproblem $\min_y y^\top\Sigma y$ unter $(\mu - r_f)^\top y = 1$ mit $w = y/\mathbf 1^\top y$ bestimmt. Weil dieses Problem konvex ist, gibt es keine lokalen Nebenoptima.
+gelöst, mit Gewichtsgrenzen numerisch (SLSQP) und ohne Grenzen in geschlossener Form. Das Max-Sharpe-Portfolio der App (Effizienz, Vergleich, Umschichtung) ist standardmäßig nach Michaud geglättet: das Mittel der Max-Sharpe-Gewichte aus 100 Parameterziehungen, die zur Schätzunsicherheit passen (fester Startwert, also reproduzierbar). Es liegt etwas unter dem geschätzten Rand, ist aber breiter gestreut; unter **Einstellungen** lässt sich das klassische Portfolio wählen. Das Max-Sharpe-Portfolio wird über das konvexe Ersatzproblem $\min_y y^\top\Sigma y$ unter $(\mu - r_f)^\top y = 1$ mit $w = y/\mathbf 1^\top y$ bestimmt. Weil dieses Problem konvex ist, gibt es keine lokalen Nebenoptima.
 
 **Monte Carlo.** Die parametrische Variante simuliert monatliche Log-Renditen $\mathcal N\big((\mu - \tfrac12\operatorname{diag}\Sigma)\,\Delta t,\; \Sigma\,\Delta t\big)$. Das Bootstrap zieht zusammenhängende Blöcke von 21 historischen Handelstagen, wodurch Fat Tails und kurzfristige Abhängigkeiten erhalten bleiben. Das Portfolio wird monatlich auf die Zielgewichte zurückgesetzt; die Sparrate wird am Monatsende eingezahlt.
 
